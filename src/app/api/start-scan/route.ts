@@ -20,18 +20,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid GitHub URL' }, { status: 400 });
     }
 
-    // Extract JWT forwarded by the frontend (InsForge token is in-memory, not in cookies)
-    const authHeader = req.headers.get('authorization') || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Create InsForge client with the user's JWT so getCurrentUser hits /api/auth/sessions/current
+    // Forward browser cookies so InsForge can authenticate via httpOnly session cookies
+    const cookieHeader = req.headers.get('cookie') || '';
     const insforge = createClient({
       baseUrl: INSFORGE_BASE_URL,
       anonKey: INSFORGE_ANON_KEY,
-      edgeFunctionToken: token,
+      headers: { Cookie: cookieHeader },
     });
 
     // Get authenticated user

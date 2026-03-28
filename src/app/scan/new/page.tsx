@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/InsForgeProvider';
-import { insforge } from '@/lib/insforge';
-import { 
+import {
   Shield, 
   Github, 
   ArrowLeft, 
@@ -37,17 +36,9 @@ export default function NewScan() {
     setLoading(true);
     setError('');
 
-    // Get JWT from the in-memory InsForge SDK instance and forward it to the API route
-    // The server-side SDK needs the token explicitly (no shared cookie session server-side)
-    const token = (insforge as unknown as { tokenManager: { getAccessToken: () => string | null } })
-      .tokenManager?.getAccessToken() ?? '';
-
     const res = await fetch('/api/start-scan', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo_url: repoUrl, branch: 'main' }),
     });
 
