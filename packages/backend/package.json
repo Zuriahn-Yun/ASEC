@@ -4,13 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "setup-db": "tsx scripts/setup-db.ts"
   },
   "dependencies": {
     "@insforge/sdk": "latest"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
-    "@types/node": "^20.12.0"
+    "@types/node": "^20.12.0",
+    "tsx": "^4.10.0"
   }
 }
