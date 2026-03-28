@@ -70,6 +70,7 @@ export async function runSemgrep(
       err instanceof Error &&
       (err.message.includes('ENOENT') || err.message.includes('not found'));
     if (isNotFound) {
+      console.warn('[SAST] semgrep not found in PATH — skipping SAST scan. Install: pip install semgrep');
       return [];
     }
     // Non-zero exit with output is normal for semgrep when findings exist

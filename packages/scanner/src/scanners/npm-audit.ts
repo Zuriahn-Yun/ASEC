@@ -115,7 +115,7 @@ export async function runNpmAudit(repoDir: string, scanId: string): Promise<Find
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes('ENOENT') || message.includes('not found') || message.includes('not recognized')) {
-      console.warn('[npm-audit] npm not installed, skipping');
+      console.warn('[SCA] npm not found in PATH — skipping npm audit. Install: https://nodejs.org/en/download/');
       return [];
     }
 
