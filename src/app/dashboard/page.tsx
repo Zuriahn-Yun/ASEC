@@ -140,7 +140,7 @@ export default function Dashboard() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <Shield className="w-16 h-16 mx-auto mb-4 text-blue-500" />
-          <h1 className="text-2xl font-bold mb-4">Welcome to SecForge</h1>
+          <h1 className="text-2xl font-bold mb-4">Welcome to ASEC</h1>
           <p className="text-gray-400 mb-6">Please sign in to access your security dashboard</p>
           <Link 
             href="/sign-in"
@@ -161,7 +161,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <Shield className="w-8 h-8 text-blue-500" />
-              <span className="text-xl font-bold">SecForge</span>
+              <span className="text-xl font-bold">ASEC</span>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-gray-400">{user.email}</span>

@@ -3,7 +3,7 @@ import './globals.css';
 import { InsForgeProvider } from '@/components/InsForgeProvider';
 
 export const metadata: Metadata = {
-  title: 'SecForge - Autonomous Security Scanner',
+  title: 'ASEC - Autonomous Security Scanner',
   description: 'AI-powered security scanning and patching platform',
 };
 

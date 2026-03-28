@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Database setup script for SecForge
+ * Database setup script for ASEC
  * 
  * Creates all database tables in InsForge by executing the SQL schema.
  * Run with: npm run setup-db
@@ -37,7 +37,7 @@ async function executeSql(statement: string): Promise<void> {
  * Main setup function
  */
 async function setupDatabase(): Promise<void> {
-  console.log('🔧 SecForge Database Setup\n');
+  console.log('🔧 ASEC Database Setup\n');
 
   // Check for anon key
   if (!process.env.INSFORGE_ANON_KEY) {
