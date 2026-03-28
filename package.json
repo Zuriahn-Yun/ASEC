@@ -9,11 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@insforge/sdk": "^1.2.2",
     "@insforge/react": "^1.0.0",
+    "@insforge/sdk": "^1.2.2",
     "lucide-react": "^0.460.0",
     "next": "^15.5.7",
     "react": "^19.2.3",
+    "react-diff-viewer-continued": "^4.2.0",
     "react-dom": "^19.2.3",
     "recharts": "^2.13.0"
   },
