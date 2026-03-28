@@ -11,17 +11,20 @@
   "dependencies": {
     "@insforge/react": "^1.0.0",
     "@insforge/sdk": "^1.2.2",
+    "gsap": "^3.14.2",
     "lucide-react": "^0.460.0",
     "next": "^15.5.7",
     "react": "^19.2.3",
     "react-diff-viewer-continued": "^4.2.0",
     "react-dom": "^19.2.3",
-    "recharts": "^2.13.0"
+    "recharts": "^2.13.0",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@types/node": "^24.9.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.183.1",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.21.0",
     "eslint-config-next": "^15.2.2",
