@@ -4,21 +4,18 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
-import { 
-  Shield, 
-  ArrowLeft, 
-  Scan, 
+import { FindingsTable } from '@/components/FindingsTable';
+import { SeverityChart } from '@/components/SeverityChart';
+import type { ScanFinding } from '../../../../packages/shared/types/finding';
+import {
+  Shield,
+  ArrowLeft,
+  Scan,
   AlertTriangle,
   CheckCircle,
   Loader2,
   GitBranch,
   Clock,
-  FileCode,
-  Bug,
-  Package,
-  Zap,
-  ChevronDown,
-  ChevronUp,
   Download
 } from 'lucide-react';
 import Link from 'next/link';
@@ -41,29 +38,15 @@ interface Scan {
   low_count: number;
 }
 
-interface Finding {
-  id: string;
-  title: string;
-  description: string;
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  category: 'sast' | 'sca' | 'dast';
-  file_path: string;
-  line_number: number;
-  code_snippet: string;
-  remediation: string;
-  tool: string;
-  status: string;
-}
 
 export default function ScanDetail() {
   const params = useParams();
   const router = useRouter();
   const { user, isLoaded } = useUser();
   const [scan, setScan] = useState<Scan | null>(null);
-  const [findings, setFindings] = useState<Finding[]>([]);
+  const [findings, setFindings] = useState<ScanFinding[]>([]);
+  const [selectedFinding, setSelectedFinding] = useState<ScanFinding | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<string>('all');
 
   const scanId = params.id as string;
 
@@ -97,54 +80,22 @@ export default function ScanDetail() {
       .order('severity', { ascending: false });
 
     if (findingsData) {
-      setFindings(findingsData as Finding[]);
+      setFindings(findingsData as ScanFinding[]);
     }
 
     setLoading(false);
   };
 
-  const getSeverityColor = (severity: string) => {
-    const colors = {
-      critical: 'text-red-500 bg-red-500/10 border-red-500/20',
-      high: 'text-orange-500 bg-orange-500/10 border-orange-500/20',
-      medium: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20',
-      low: 'text-blue-500 bg-blue-500/10 border-blue-500/20',
-      info: 'text-gray-500 bg-gray-500/10 border-gray-500/20',
-    };
-    return colors[severity as keyof typeof colors] || colors.info;
-  };
-
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed':
+      case 'complete':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'running':
-        return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
-      case 'pending':
-        return <Clock className="w-5 h-5 text-yellow-500" />;
       case 'failed':
         return <AlertTriangle className="w-5 h-5 text-red-500" />;
       default:
-        return <span className="text-gray-500">-</span>;
+        return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
     }
   };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'sast':
-        return <FileCode className="w-4 h-4" />;
-      case 'sca':
-        return <Package className="w-4 h-4" />;
-      case 'dast':
-        return <Zap className="w-4 h-4" />;
-      default:
-        return <Bug className="w-4 h-4" />;
-    }
-  };
-
-  const filteredFindings = activeFilter === 'all' 
-    ? findings 
-    : findings.filter(f => f.category === activeFilter);
 
   if (!isLoaded || loading) {
     return (
@@ -262,131 +213,45 @@ export default function ScanDetail() {
           </div>
         </div>
 
-        {/* Findings Summary */}
-        {scan.status === 'completed' && (
-          <div className="grid grid-cols-5 gap-4 mb-6">
-            <div className="bg-gray-900 rounded-xl p-4 border border-gray-800 text-center">
-              <p className="text-2xl font-bold">{scan.total_findings}</p>
-              <p className="text-sm text-gray-400">Total</p>
+        {/* Findings — chart + table */}
+        {findings.length > 0 && (
+          <div className="space-y-6">
+            {/* Severity chart */}
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+              <h2 className="text-lg font-semibold mb-4">Severity Breakdown</h2>
+              <SeverityChart findings={findings} />
             </div>
-            <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20 text-center">
-              <p className="text-2xl font-bold text-red-500">{scan.critical_count}</p>
-              <p className="text-sm text-red-400">Critical</p>
-            </div>
-            <div className="bg-orange-500/10 rounded-xl p-4 border border-orange-500/20 text-center">
-              <p className="text-2xl font-bold text-orange-500">{scan.high_count}</p>
-              <p className="text-sm text-orange-400">High</p>
-            </div>
-            <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20 text-center">
-              <p className="text-2xl font-bold text-yellow-500">{scan.medium_count}</p>
-              <p className="text-sm text-yellow-400">Medium</p>
-            </div>
-            <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20 text-center">
-              <p className="text-2xl font-bold text-blue-500">{scan.low_count}</p>
-              <p className="text-sm text-blue-400">Low</p>
+
+            {/* Findings table */}
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+              <h2 className="text-lg font-semibold mb-4">Findings</h2>
+              <FindingsTable findings={findings} onSelect={setSelectedFinding} />
             </div>
           </div>
         )}
 
-        {/* Findings List */}
-        {scan.status === 'completed' && (
-          <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Findings</h2>
-              <div className="flex items-center gap-2">
-                {['all', 'sast', 'sca', 'dast'].map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => setActiveFilter(filter)}
-                    className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                      activeFilter === filter
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    {filter === 'all' ? 'All' : filter.toUpperCase()}
-                  </button>
-                ))}
+        {/* Finding detail panel */}
+        {selectedFinding && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setSelectedFinding(null)}>
+            <div className="bg-gray-900 rounded-xl border border-gray-800 w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-4">
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-lg">{selectedFinding.title}</h3>
+                  <p className="text-xs text-gray-500 font-mono">
+                    {selectedFinding.file_path}{selectedFinding.line_start ? `:${selectedFinding.line_start}` : ''}
+                  </p>
+                </div>
+                <button onClick={() => setSelectedFinding(null)} className="text-gray-500 hover:text-white">✕</button>
+              </div>
+              {selectedFinding.description && (
+                <p className="text-sm text-gray-300 mb-4">{selectedFinding.description}</p>
+              )}
+              <div className="flex items-center gap-3">
+                <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                  Generate AI Patch
+                </button>
               </div>
             </div>
-
-            {filteredFindings.length === 0 ? (
-              <div className="p-12 text-center">
-                <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-500" />
-                <h3 className="text-lg font-medium mb-2">No Findings</h3>
-                <p className="text-gray-400">Great! No vulnerabilities were found in this scan.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-800">
-                {filteredFindings.map((finding) => (
-                  <div key={finding.id} className="p-4">
-                    <button
-                      onClick={() => setExpandedFinding(
-                        expandedFinding === finding.id ? null : finding.id
-                      )}
-                      className="w-full flex items-start gap-4 text-left"
-                    >
-                      <div className={`flex-shrink-0 w-20 text-center px-2 py-1 rounded border text-xs font-medium ${getSeverityColor(finding.severity)}`}>
-                        {finding.severity.toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          {getCategoryIcon(finding.category)}
-                          <span className="text-xs text-gray-500 uppercase">{finding.category}</span>
-                          <span className="text-xs text-gray-600">•</span>
-                          <span className="text-xs text-gray-500">{finding.tool}</span>
-                        </div>
-                        <h3 className="font-medium mt-1">{finding.title}</h3>
-                        {finding.file_path && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            {finding.file_path}:{finding.line_number}
-                          </p>
-                        )}
-                      </div>
-                      {expandedFinding === finding.id ? (
-                        <ChevronUp className="w-5 h-5 text-gray-500" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-gray-500" />
-                      )}
-                    </button>
-
-                    {expandedFinding === finding.id && (
-                      <div className="mt-4 ml-24 space-y-4">
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-400 mb-2">Description</h4>
-                          <p className="text-sm text-gray-300">{finding.description}</p>
-                        </div>
-                        
-                        {finding.code_snippet && (
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Code Snippet</h4>
-                            <pre className="bg-gray-950 p-4 rounded-lg overflow-x-auto">
-                              <code className="text-sm text-gray-300">{finding.code_snippet}</code>
-                            </pre>
-                          </div>
-                        )}
-
-                        {finding.remediation && (
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Remediation</h4>
-                            <p className="text-sm text-gray-300">{finding.remediation}</p>
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-3 pt-4">
-                          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                            Generate AI Patch
-                          </button>
-                          <button className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                            Mark as False Positive
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </main>
