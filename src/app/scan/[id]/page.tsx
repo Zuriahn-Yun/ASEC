@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
+import { useRealtimeScan } from '@/hooks/useRealtimeScan';
+import { SCAN_STEPS, SCAN_STEP_LABELS } from '../../../../packages/shared/constants';
 import { 
   Shield, 
   ArrowLeft, 
@@ -67,6 +69,25 @@ export default function ScanDetail() {
 
   const scanId = params.id as string;
 
+  // Realtime status + live findings
+  const { status: realtimeStatus, findings: realtimeFindings } = useRealtimeScan(
+    user ? scanId : null,
+  );
+
+  // Merge realtime findings into local state
+  useEffect(() => {
+    if (realtimeFindings.length > 0) {
+      setFindings(realtimeFindings as unknown as Finding[]);
+    }
+  }, [realtimeFindings]);
+
+  // Keep scan status in sync with realtime
+  useEffect(() => {
+    if (scan && realtimeStatus) {
+      setScan((prev) => prev ? { ...prev, status: realtimeStatus } : prev);
+    }
+  }, [realtimeStatus]);
+
   useEffect(() => {
     if (isLoaded && !user) {
       router.push('/sign-in');
@@ -80,7 +101,7 @@ export default function ScanDetail() {
   const fetchScanData = async () => {
     // Fetch scan details
     const { data: scanData } = await insforge.database
-      .from('scans')
+      .from('scan_jobs')
       .select('*')
       .eq('id', scanId)
       .single();
@@ -213,8 +234,8 @@ export default function ScanDetail() {
                 </div>
                 <div className="flex items-center gap-4 mt-3">
                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                    scan.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                    scan.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
+                    scan.status === 'complete' ? 'bg-green-500/20 text-green-400' :
+                    ['cloning','detecting','booting','scanning_sast','scanning_dast','scanning_sca','analyzing','fixing'].includes(scan.status) ? 'bg-blue-500/20 text-blue-400' :
                     scan.status === 'failed' ? 'bg-red-500/20 text-red-400' :
                     'bg-yellow-500/20 text-yellow-400'
                   }`}>
@@ -236,34 +257,41 @@ export default function ScanDetail() {
             </button>
           </div>
 
-          {/* Scan Progress */}
-          <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-gray-800">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(scan.sast_status)}
-              <div>
-                <p className="text-sm font-medium">SAST</p>
-                <p className="text-xs text-gray-500 capitalize">{scan.sast_status}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {getStatusIcon(scan.sca_status)}
-              <div>
-                <p className="text-sm font-medium">SCA</p>
-                <p className="text-xs text-gray-500 capitalize">{scan.sca_status}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {getStatusIcon(scan.dast_status)}
-              <div>
-                <p className="text-sm font-medium">DAST</p>
-                <p className="text-xs text-gray-500 capitalize">{scan.dast_status}</p>
-              </div>
+          {/* Pipeline Status Stepper */}
+          <div className="mt-6 pt-6 border-t border-gray-800">
+            <div className="flex items-center gap-1 overflow-x-auto pb-1">
+              {SCAN_STEPS.filter((s) => s !== 'queued').map((step, idx, arr) => {
+                const currentIdx = SCAN_STEPS.indexOf(scan.status as typeof SCAN_STEPS[number]);
+                const stepIdx = SCAN_STEPS.indexOf(step);
+                const isDone = stepIdx < currentIdx;
+                const isActive = step === scan.status;
+                const isFailed = scan.status === 'failed' && isActive;
+
+                return (
+                  <div key={step} className="flex items-center gap-1 flex-shrink-0">
+                    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
+                      isFailed ? 'bg-red-500/20 text-red-400' :
+                      isActive ? 'bg-blue-500/20 text-blue-400' :
+                      isDone ? 'bg-green-500/20 text-green-400' :
+                      'bg-gray-800 text-gray-500'
+                    }`}>
+                      {isActive && !isFailed && <Loader2 className="w-3 h-3 animate-spin" />}
+                      {isDone && <CheckCircle className="w-3 h-3" />}
+                      {isFailed && <AlertTriangle className="w-3 h-3" />}
+                      {SCAN_STEP_LABELS[step]}
+                    </div>
+                    {idx < arr.length - 1 && (
+                      <div className={`w-4 h-px flex-shrink-0 ${isDone ? 'bg-green-500' : 'bg-gray-700'}`} />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
         {/* Findings Summary */}
-        {scan.status === 'completed' && (
+        {scan.status === 'complete' && (
           <div className="grid grid-cols-5 gap-4 mb-6">
             <div className="bg-gray-900 rounded-xl p-4 border border-gray-800 text-center">
               <p className="text-2xl font-bold">{scan.total_findings}</p>
@@ -289,7 +317,7 @@ export default function ScanDetail() {
         )}
 
         {/* Findings List */}
-        {scan.status === 'completed' && (
+        {scan.status === 'complete' && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
             <div className="p-4 border-b border-gray-800 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Findings</h2>
