@@ -2,12 +2,26 @@ import { cloneRepo } from './clone.js';
 import { detectFramework } from './detect.js';
 import { bootApp, stopApp } from './boot.js';
 import { cleanup } from './cleanup.js';
+import { runSemgrep } from './scanners/semgrep.js';
+import { runZap } from './scanners/zap.js';
+import { runNuclei } from './scanners/nuclei.js';
+import { runTrivy } from './scanners/trivy.js';
+import { runNpmAudit } from './scanners/npm-audit.js';
+import { triageFindings, generateFixes } from './ai-analyzer.js';
+import { updateScanStatus, insertFindings, insertFixes, computeSummary } from './reporter.js';
+import { createClient } from '@insforge/sdk';
 
 export interface PipelineJob {
   id: string;
   repo_url: string;
   branch?: string;
 }
+
+// Initialize InsForge client for AI analysis
+const insforge = createClient({
+  baseUrl: process.env.INSFORGE_BASE_URL || '',
+  anonKey: process.env.INSFORGE_ANON_KEY || '',
+});
 
 /**
  * Runs the full scan pipeline for a given job.
@@ -21,9 +35,11 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
 
   try {
     // 1. Clone
+    await updateScanStatus(job.id, 'cloning');
     repoDir = await cloneRepo(job.repo_url, job.branch);
 
     // 2. Detect framework
+    await updateScanStatus(job.id, 'detecting');
     const detection = await detectFramework(repoDir);
 
     // 3. SAST (runs on source — no container needed)
@@ -31,13 +47,16 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
 
     // 4. Boot app for DAST (best-effort — failure is non-fatal)
     let dastEnabled = false;
+    let appUrl: string | undefined;
     try {
+      await updateScanStatus(job.id, 'booting');
       const booted = await bootApp(repoDir, detection);
       containerId = booted.containerId;
+      appUrl = booted.appUrl;
       dastEnabled = true;
 
       // 5. DAST
-      await runDast(job.id, booted.appUrl);
+      await runDast(job.id, appUrl);
     } catch {
       // Boot failed — skip DAST, continue with SCA + AI
     } finally {
@@ -53,10 +72,15 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
     await runSca(job.id, repoDir);
 
     // 7. AI analysis + fix generation
-    await runAiAnalysis(job.id);
+    await runAiAnalysis(job.id, repoDir);
 
     // 8. Report / finalize
     await finalizeReport(job.id);
+  } catch (error) {
+    // Update scan status to failed
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await updateScanStatus(job.id, 'failed', errorMessage);
+    throw error;
   } finally {
     // Always clean up temp dir; container already stopped above
     if (repoDir) {
@@ -66,25 +90,105 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Stub hooks — each will be replaced by real implementations in future issues
+// Real implementations — wired to scanner wrappers, AI analyzer, and reporter
 // ---------------------------------------------------------------------------
 
-async function runSast(_scanId: string, _repoDir: string): Promise<void> {
-  // Implemented in: packages/scanner/src/scanners/sast.ts (issue #3 / #12)
+async function runSast(scanId: string, repoDir: string): Promise<void> {
+  await updateScanStatus(scanId, 'scanning_sast');
+  
+  const findings = await runSemgrep(repoDir);
+  
+  // Set scan_id on each finding
+  const findingsWithScanId = findings.map(f => ({ ...f, scan_id: scanId }));
+  
+  await insertFindings(scanId, findingsWithScanId);
 }
 
-async function runDast(_scanId: string, _appUrl: string): Promise<void> {
-  // Implemented in: packages/scanner/src/scanners/dast.ts (issue #5 / #14)
+async function runDast(scanId: string, appUrl: string): Promise<void> {
+  await updateScanStatus(scanId, 'scanning_dast');
+  
+  // Run ZAP and Nuclei in parallel
+  const [zapResult, nucleiResult] = await Promise.allSettled([
+    runZap(appUrl),
+    runNuclei(appUrl),
+  ]);
+  
+  const zapFindings = zapResult.status === 'fulfilled' ? zapResult.value : [];
+  const nucleiFindings = nucleiResult.status === 'fulfilled' ? nucleiResult.value : [];
+  
+  // Log errors if any
+  if (zapResult.status === 'rejected') {
+    console.error('ZAP scan failed:', zapResult.reason);
+  }
+  if (nucleiResult.status === 'rejected') {
+    console.error('Nuclei scan failed:', nucleiResult.reason);
+  }
+  
+  // Combine findings and set scan_id
+  const allFindings = [...zapFindings, ...nucleiFindings].map(f => ({ ...f, scan_id: scanId }));
+  
+  await insertFindings(scanId, allFindings);
 }
 
-async function runSca(_scanId: string, _repoDir: string): Promise<void> {
-  // Implemented in: packages/scanner/src/scanners/sca.ts (issue #4 / #13)
+async function runSca(scanId: string, repoDir: string): Promise<void> {
+  await updateScanStatus(scanId, 'scanning_sca');
+  
+  // Run Trivy and npm audit in parallel
+  const [trivyResult, npmResult] = await Promise.allSettled([
+    runTrivy(repoDir, scanId),
+    runNpmAudit(repoDir, scanId),
+  ]);
+  
+  const trivyFindings = trivyResult.status === 'fulfilled' ? trivyResult.value : [];
+  const npmFindings = npmResult.status === 'fulfilled' ? npmResult.value : [];
+  
+  // Log errors if any
+  if (trivyResult.status === 'rejected') {
+    console.error('Trivy scan failed:', trivyResult.reason);
+  }
+  if (npmResult.status === 'rejected') {
+    console.error('npm audit failed:', npmResult.reason);
+  }
+  
+  // Combine findings
+  const allFindings = [...trivyFindings, ...npmFindings];
+  
+  await insertFindings(scanId, allFindings);
 }
 
-async function runAiAnalysis(_scanId: string): Promise<void> {
-  // Implemented in: packages/scanner/src/scanners/ai.ts (issue #6 / #15)
+async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
+  await updateScanStatus(scanId, 'analyzing');
+  
+  // Fetch findings from DB
+  const { data: findings, error: fetchError } = await insforge.database
+    .from('findings')
+    .select('*')
+    .eq('scan_id', scanId);
+  
+  if (fetchError) {
+    console.error('Failed to fetch findings for AI analysis:', fetchError);
+    return;
+  }
+  
+  if (!findings || findings.length === 0) {
+    console.log('No findings to analyze');
+    return;
+  }
+  
+  // Triage findings
+  const triaged = await triageFindings(findings);
+  
+  // Update findings with triaged severity (optional - could update DB here)
+  
+  await updateScanStatus(scanId, 'fixing');
+  
+  // Generate fixes
+  const fixes = await generateFixes(triaged, repoDir, scanId);
+  
+  await insertFixes(scanId, fixes);
 }
 
-async function finalizeReport(_scanId: string): Promise<void> {
-  // Implemented in: packages/scanner/src/report.ts
+async function finalizeReport(scanId: string): Promise<void> {
+  await computeSummary(scanId);
+  await updateScanStatus(scanId, 'complete');
 }
