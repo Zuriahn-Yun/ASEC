@@ -16,7 +16,7 @@ const __dirname = path.dirname(__filename);
 
 // Initialize InsForge client
 const insforge = createClient({
-  baseUrl: process.env.INSFORGE_BASE_URL || 'https://66wjtrxb.us-west.insforge.app',
+  baseUrl: process.env.INSFORGE_BASE_URL || '',
   anonKey: process.env.INSFORGE_ANON_KEY || '',
 });
 

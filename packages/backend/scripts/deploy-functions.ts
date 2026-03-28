@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { join, basename } from 'path';
 
-const INSFORGE_BASE_URL = process.env.INSFORGE_BASE_URL || 'https://66wjtrxb.us-west.insforge.app';
+const INSFORGE_BASE_URL = process.env.INSFORGE_BASE_URL || '';
 const INSFORGE_API_KEY = process.env.INSFORGE_API_KEY;
 
 if (!INSFORGE_API_KEY) {
