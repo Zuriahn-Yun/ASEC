@@ -5,6 +5,7 @@ import { join } from 'path';
 import type { ScanFinding, SeverityLevel } from '../../../shared/types';
 
 const execFileAsync = promisify(execFile);
+const USE_SHELL = process.platform === 'win32';
 
 type FindingWithoutMeta = Omit<ScanFinding, 'id' | 'created_at'>;
 
@@ -60,6 +61,7 @@ export async function runNpmAudit(repoDir: string, scanId: string): Promise<Find
         cwd: repoDir,
         timeout: 120_000, // 2 min
         maxBuffer: 50 * 1024 * 1024,
+        shell: USE_SHELL,
       });
       stdout = result.stdout;
     } catch (err: unknown) {

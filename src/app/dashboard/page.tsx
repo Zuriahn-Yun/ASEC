@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useUser } from '@/components/InsForgeProvider';
-import { insforge } from '@/lib/insforge';
+import { getScanOwnerId, insforge } from '@/lib/insforge';
 import {
   Shield,
   Scan,
@@ -48,6 +48,8 @@ interface ScanWithSummary extends ScanJobRow {
 
 export default function Dashboard() {
   const { user, isLoaded, signOut } = useUser();
+  const scanOwnerId = getScanOwnerId(user?.id);
+  const isDemoMode = !user;
   const [scans, setScans] = useState<ScanWithSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -58,19 +60,21 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    if (user) {
+    if (isLoaded) {
       fetchScans();
     }
-  }, [user]);
+  }, [isLoaded, scanOwnerId]);
 
   const fetchScans = async () => {
+    setLoading(true);
+
     const { data: jobs, error: jobsError } = await insforge.database
       .from('scan_jobs')
       .select('*')
-      .eq('user_id', user?.id)
+      .eq('user_id', scanOwnerId)
       .order('created_at', { ascending: false });
 
-    if (!jobs) {
+    if (jobsError || !jobs) {
       setLoading(false);
       return;
     }
@@ -135,23 +139,7 @@ export default function Dashboard() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Shield className="w-16 h-16 mx-auto mb-4 text-blue-500" />
-          <h1 className="text-2xl font-bold mb-4">Welcome to ASEC</h1>
-          <p className="text-gray-400 mb-6">Please sign in to access your security dashboard</p>
-          <Link 
-            href="/sign-in"
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-          >
-            Sign In
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // Auth bypassed for demo
 
   return (
     <div className="min-h-screen bg-gray-950">
@@ -164,13 +152,17 @@ export default function Dashboard() {
               <span className="text-xl font-bold">ASEC</span>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-gray-400">{user.email}</span>
-              <button
-                onClick={signOut}
-                className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+              <span className="text-gray-400">
+                {user?.email || 'Demo workspace'}
+              </span>
+              {!isDemoMode && (
+                <button
+                  onClick={signOut}
+                  className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
 import { useScanRealtime } from '@/lib/useScanRealtime';
@@ -37,8 +37,7 @@ interface ScanData {
 
 export default function ScanDetail() {
   const params = useParams();
-  const router = useRouter();
-  const { user, isLoaded } = useUser();
+  const { isLoaded } = useUser();
   const [scan, setScan] = useState<ScanData | null>(null);
   const [findings, setFindings] = useState<ScanFinding[]>([]);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
@@ -48,6 +47,8 @@ export default function ScanDetail() {
   const [exporting, setExporting] = useState(false);
 
   const scanId = params.id as string;
+  const hasSummary = Boolean(summary);
+  const isCleanScan = scan?.status === 'complete' && (summary?.total_findings ?? 0) === 0;
 
   const fetchFindings = async () => {
     const { data } = await insforge.database
@@ -66,12 +67,11 @@ export default function ScanDetail() {
       .single();
     if (scanData) setScan(scanData as ScanData);
 
-    const { data: summaryData } = await insforge.database
+    const { data: summaryRows } = await insforge.database
       .from('scan_summaries')
       .select('*')
-      .eq('scan_id', scanId)
-      .single();
-    if (summaryData) setSummary(summaryData as ScanSummary);
+      .eq('scan_id', scanId);
+    if (summaryRows && summaryRows.length > 0) setSummary(summaryRows[0] as ScanSummary);
 
     await fetchFindings();
     setLoading(false);
@@ -96,7 +96,7 @@ export default function ScanDetail() {
     setExporting(true);
 
     const [{ data: summaryData }, { data: findingsData }, { data: fixesData }] = await Promise.all([
-      insforge.database.from('scan_summaries').select('*').eq('scan_id', scanId).single(),
+      insforge.database.from('scan_summaries').select('*').eq('scan_id', scanId),
       insforge.database.from('findings').select('*').eq('scan_id', scanId).order('severity', { ascending: false }),
       insforge.database.from('fixes').select('*').eq('scan_id', scanId),
     ]);
@@ -111,7 +111,7 @@ export default function ScanDetail() {
         started_at: scan.started_at,
         completed_at: scan.completed_at,
       },
-      summary: summaryData ?? null,
+      summary: (summaryData && summaryData.length > 0 ? summaryData[0] : null),
       findings: findingsData ?? [],
       fixes: fixesData ?? [],
       exported_at: new Date().toISOString(),
@@ -128,14 +128,24 @@ export default function ScanDetail() {
   };
 
   useEffect(() => {
-    if (isLoaded && !user) {
-      router.push('/sign-in');
-      return;
-    }
-    if (user && scanId) {
+    if (scanId) {
       fetchScanData();
     }
-  }, [user, isLoaded, scanId]);
+  }, [scanId]);
+
+  useEffect(() => {
+    if (!scanId || !scan || scan.status === 'complete' || scan.status === 'failed') {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      fetchScanData().catch(() => undefined);
+    }, 4000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [scanId, scan?.status]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -233,6 +243,11 @@ export default function ScanDetail() {
                       Started: {new Date(scan.started_at).toLocaleString()}
                     </span>
                   )}
+                  {scan.completed_at && (
+                    <span className="text-sm text-gray-500">
+                      Completed: {new Date(scan.completed_at).toLocaleString()}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -293,6 +308,41 @@ export default function ScanDetail() {
         {/* Findings — chart + table */}
         {(findings.length > 0 || summary) && (
           <div className="space-y-6">
+            {hasSummary && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
+                  <p className="text-sm text-gray-400">Total Findings</p>
+                  <p className="mt-2 text-3xl font-bold">{summary?.total_findings ?? 0}</p>
+                </div>
+                <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
+                  <p className="text-sm text-gray-400">SAST Findings</p>
+                  <p className="mt-2 text-3xl font-bold">{summary?.sast_count ?? 0}</p>
+                </div>
+                <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
+                  <p className="text-sm text-gray-400">SCA Findings</p>
+                  <p className="mt-2 text-3xl font-bold">{summary?.sca_count ?? 0}</p>
+                </div>
+                <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
+                  <p className="text-sm text-gray-400">DAST Findings</p>
+                  <p className="mt-2 text-3xl font-bold">{summary?.dast_count ?? 0}</p>
+                </div>
+              </div>
+            )}
+
+            {isCleanScan && (
+              <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-6">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
+                  <div>
+                    <h2 className="text-lg font-semibold text-green-300">Clean Report</h2>
+                    <p className="text-sm text-green-200/90 mt-1">
+                      No findings were detected in the scans that ran for this repository.
+                      If the repo is not a runnable web app, DAST is expected to be skipped.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Severity chart from scan_summaries */}
             {summary && (
               <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">

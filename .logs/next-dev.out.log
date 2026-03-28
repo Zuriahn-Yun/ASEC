@@ -1,0 +1,47 @@
+
+> asec@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.14
+   - Local:        http://localhost:3000
+   - Network:      http://10.5.0.2:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 17.6s
+ ○ Compiling / ...
+ ✓ Compiled / in 23.7s (845 modules)
+ GET / 307 in 11439ms
+ GET /dashboard 200 in 11407ms
+ GET /dashboard 200 in 890ms
+ GET /dashboard 200 in 840ms
+ ○ Compiling /scan/new ...
+ ✓ Compiled /scan/new in 1995ms (864 modules)
+ GET /scan/new 200 in 2891ms
+ GET /dashboard 200 in 990ms
+ GET /scan/new 200 in 450ms
+ ○ Compiling /api/start-scan ...
+ ✓ Compiled /api/start-scan in 2.9s (973 modules)
+ ○ Compiling /scan/[id] ...
+ POST /api/start-scan 200 in 9172ms
+ GET /dashboard 200 in 12457ms
+ ✓ Compiled /scan/[id] in 39.2s (2152 modules)
+ GET /scan/b3b64d7d-9707-4c9b-bc91-9012c3a3bc45 200 in 59892ms
+ GET /scan/new 200 in 798ms
+ GET /dashboard 200 in 2237ms
+ GET /scan/1dea1cc2-e637-4efd-a554-8438ba76afa9 200 in 2656ms
+ GET /dashboard 200 in 364ms
+ GET /scan/new 200 in 165ms
+ GET /dashboard 200 in 422ms
+ GET /scan/new 200 in 190ms
+ GET /dashboard 200 in 249ms
+ GET /scan/new 200 in 244ms
+ POST /api/start-scan 200 in 2191ms
+ GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 577ms
+ GET /dashboard 200 in 1229ms
+ POST /api/start-scan 200 in 1422ms
+ GET /dashboard 200 in 1309ms
+ GET /scan/new 200 in 584ms
+ GET /dashboard 200 in 304ms
+ GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 682ms
+ GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 403ms

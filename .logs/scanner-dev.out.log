@@ -1,0 +1,12 @@
+
+> @bounty/scanner@0.0.1 dev
+> tsx src/server.ts
+
+Scanner HTTP server listening on port 4000
+=== Scanner Tool Availability ===
+  git: ✓ (git version 2.53.0.windows.2)
+  semgrep: ✓ (via Docker image)
+  docker: ✓ (Docker version 29.2.1, build a5c7197)
+  nuclei: ✓ (via Docker image)
+  trivy: ✓ (via Docker image)
+  npm: ✓ (10.9.2)

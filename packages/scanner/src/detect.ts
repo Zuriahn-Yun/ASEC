@@ -8,34 +8,36 @@ export interface DetectionResult {
   port: number;
 }
 
-/**
- * Detects the framework and runtime of a cloned repo.
- * Reads package.json (Node) or requirements.txt (Python) to infer framework.
- */
+interface PackageJson {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
+}
+
 export async function detectFramework(repoDir: string): Promise<DetectionResult> {
-  // Try Node.js detection first
   const packageJsonPath = join(repoDir, 'package.json');
   const packageJson = await readFile(packageJsonPath, 'utf-8').catch(() => null);
 
   if (packageJson !== null) {
-    let pkg: Record<string, unknown>;
+    let pkg: PackageJson = {};
     try {
-      pkg = JSON.parse(packageJson) as Record<string, unknown>;
+      pkg = JSON.parse(packageJson) as PackageJson;
     } catch {
       pkg = {};
     }
 
-    const deps: Record<string, string> = {
-      ...((pkg.dependencies as Record<string, string>) ?? {}),
-      ...((pkg.devDependencies as Record<string, string>) ?? {}),
+    const deps = {
+      ...(pkg.dependencies ?? {}),
+      ...(pkg.devDependencies ?? {}),
     };
+    const scripts = pkg.scripts ?? {};
 
     if ('next' in deps) {
       return {
         framework: 'nextjs',
         runtime: 'node',
-        startCommand: 'npm run build && npm start',
-        port: 3000,
+        startCommand: scripts.start ? 'npm start' : 'npm run build && npm start',
+        port: inferPortFromScript(scripts.start ?? scripts.dev, 3000),
       };
     }
 
@@ -43,21 +45,20 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
       return {
         framework: 'express',
         runtime: 'node',
-        startCommand: 'npm start',
-        port: 3000,
+        startCommand: selectNodeStartCommand(scripts),
+        port: inferPortFromScript(scripts.start ?? scripts.dev, 3000),
       };
     }
 
-    // Generic Node app
+    const genericStartCommand = selectNodeStartCommand(scripts);
     return {
       framework: 'unknown',
       runtime: 'node',
-      startCommand: 'npm start',
-      port: 3000,
+      startCommand: genericStartCommand,
+      port: inferPortFromScript(scripts.start ?? scripts.preview ?? scripts.dev, 3000),
     };
   }
 
-  // Try Python detection
   const requirementsPath = join(repoDir, 'requirements.txt');
   const requirements = await readFile(requirementsPath, 'utf-8').catch(() => null);
 
@@ -77,12 +78,11 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
       return {
         framework: 'flask',
         runtime: 'python',
-        startCommand: 'flask run --host=0.0.0.0',
+        startCommand: 'flask run --host=0.0.0.0 --port=5000',
         port: 5000,
       };
     }
 
-    // Generic Python app
     return {
       framework: 'unknown',
       runtime: 'python',
@@ -97,4 +97,32 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
     startCommand: '',
     port: 3000,
   };
+}
+
+function selectNodeStartCommand(scripts: Record<string, string>): string {
+  if (scripts.start) return 'npm start';
+  if (scripts.preview) return 'npm run preview';
+  if (scripts.dev) return 'npm run dev';
+  return '';
+}
+
+function inferPortFromScript(script: string | undefined, fallback: number): number {
+  if (!script) {
+    return fallback;
+  }
+
+  const explicitPort = script.match(/(?:--port=|--port\s+|PORT=)(\d{2,5})/i);
+  if (explicitPort) {
+    return Number(explicitPort[1]);
+  }
+
+  if (script.includes('vite') || script.includes('preview')) {
+    return 4173;
+  }
+
+  if (script.includes('next')) {
+    return 3000;
+  }
+
+  return fallback;
 }

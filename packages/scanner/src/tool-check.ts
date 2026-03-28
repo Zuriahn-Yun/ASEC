@@ -1,6 +1,7 @@
-import { execFile } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 export interface ToolStatus {
@@ -20,7 +21,7 @@ async function checkTool(name: string): Promise<ToolStatus> {
     // For docker, also verify the daemon is running
     if (name === 'docker') {
       try {
-        await execFileAsync('docker', ['info'], { timeout: 5000, shell: true });
+        await execAsync('docker info --format "{{.ServerVersion}}"', { timeout: 5000 });
       } catch {
         return { name, available: true, version: version + ' (daemon not running)' };
       }
@@ -34,5 +35,14 @@ async function checkTool(name: string): Promise<ToolStatus> {
 
 export async function checkTools(): Promise<ToolStatus[]> {
   const tools = ['git', 'semgrep', 'docker', 'nuclei', 'trivy', 'npm'];
-  return Promise.all(tools.map(t => checkTool(t)));
+  const results = await Promise.all(tools.map(t => checkTool(t)));
+  const dockerStatus = results.find((tool) => tool.name === 'docker');
+
+  return results.map((tool) => {
+    if ((tool.name === 'semgrep' || tool.name === 'trivy' || tool.name === 'nuclei') && !tool.available && dockerStatus?.available) {
+      return { name: tool.name, available: true, version: 'via Docker image' };
+    }
+
+    return tool;
+  });
 }

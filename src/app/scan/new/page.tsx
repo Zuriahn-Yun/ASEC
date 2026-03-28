@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@/components/InsForgeProvider';
+import { getAccessToken } from '@/lib/insforge';
 import {
   Shield, 
   Github, 
@@ -16,29 +16,29 @@ import Link from 'next/link';
 
 export default function NewScan() {
   const router = useRouter();
-  const { user } = useUser();
   const [repoUrl, setRepoUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [scanOptions, setScanOptions] = useState({
     sast: true,
     sca: true,
-    dast: false,
+    dast: true,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      router.push('/sign-in');
-      return;
-    }
-
     setLoading(true);
     setError('');
 
-    const res = await fetch('/api/start-scan', {
+    const accessToken = getAccessToken();
+    const endpoint = accessToken ? '/api/scan' : '/api/start-scan';
+
+    const res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: JSON.stringify({ repo_url: repoUrl, branch: 'main', scan_types: scanOptions }),
     });
 
