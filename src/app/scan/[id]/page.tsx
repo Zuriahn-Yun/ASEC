@@ -9,6 +9,7 @@ import { SCAN_STEPS, SCAN_STEP_LABELS } from '../../../../packages/shared/consta
 import { FindingsTable } from '@/components/FindingsTable';
 import { SeverityChart } from '@/components/SeverityChart';
 import type { ScanFinding } from '../../../../packages/shared/types/finding';
+import type { ScanSummary } from '../../../../packages/shared/types/fix';
 import {
   Shield,
   ArrowLeft,
@@ -17,7 +18,6 @@ import {
   CheckCircle,
   Loader2,
   GitBranch,
-  Clock,
   Download
 } from 'lucide-react';
 import Link from 'next/link';
@@ -40,7 +40,9 @@ export default function ScanDetail() {
   const { user, isLoaded } = useUser();
   const [scan, setScan] = useState<ScanData | null>(null);
   const [findings, setFindings] = useState<ScanFinding[]>([]);
-  const [selectedFinding, setSelectedFinding] = useState<ScanFinding | null>(null);
+  const [summary, setSummary] = useState<ScanSummary | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const scanId = params.id as string;
@@ -61,6 +63,14 @@ export default function ScanDetail() {
       .eq('id', scanId)
       .single();
     if (scanData) setScan(scanData as ScanData);
+
+    const { data: summaryData } = await insforge.database
+      .from('scan_summaries')
+      .select('*')
+      .eq('scan_id', scanId)
+      .single();
+    if (summaryData) setSummary(summaryData as ScanSummary);
+
     await fetchFindings();
     setLoading(false);
   };
@@ -235,44 +245,33 @@ export default function ScanDetail() {
         )}
 
         {/* Findings — chart + table */}
-        {findings.length > 0 && (
+        {(findings.length > 0 || summary) && (
           <div className="space-y-6">
-            {/* Severity chart */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold mb-4">Severity Breakdown</h2>
-              <SeverityChart findings={findings} />
-            </div>
+            {/* Severity chart from scan_summaries */}
+            {summary && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+                <h2 className="text-lg font-semibold mb-4">
+                  Severity Breakdown
+                  <span className="ml-2 text-sm font-normal text-gray-400">
+                    {summary.total_findings} total
+                  </span>
+                </h2>
+                <SeverityChart summary={summary} findings={findings} />
+              </div>
+            )}
 
             {/* Findings table */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold mb-4">Findings</h2>
-              <FindingsTable findings={findings} onSelect={setSelectedFinding} />
-            </div>
-          </div>
-        )}
-
-        {/* Finding detail panel */}
-        {selectedFinding && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setSelectedFinding(null)}>
-            <div className="bg-gray-900 rounded-xl border border-gray-800 w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between mb-4">
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-lg">{selectedFinding.title}</h3>
-                  <p className="text-xs text-gray-500 font-mono">
-                    {selectedFinding.file_path}{selectedFinding.line_start ? `:${selectedFinding.line_start}` : ''}
-                  </p>
-                </div>
-                <button onClick={() => setSelectedFinding(null)} className="text-gray-500 hover:text-white">&#x2715;</button>
+            {findings.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+                <h2 className="text-lg font-semibold mb-4">Findings</h2>
+                <FindingsTable
+                  findings={findings}
+                  activeFilter={activeFilter}
+                  onFilterChange={setActiveFilter}
+                  onFindingClick={setSelectedFindingId}
+                />
               </div>
-              {selectedFinding.description && (
-                <p className="text-sm text-gray-300 mb-4">{selectedFinding.description}</p>
-              )}
-              <div className="flex items-center gap-3">
-                <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                  Generate AI Patch
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         )}
       </main>
