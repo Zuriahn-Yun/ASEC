@@ -1,4 +1,4 @@
-# **SecForge**
+# **ASEC**
 
 Autonomous AI-powered security scanner for GitHub repositories. Performs SAST, DAST, and SCA analysis with AI-generated vulnerability fixes.
 
