@@ -146,8 +146,8 @@ export async function handleToolCall(
         const statusMsg = statusMessages[status.status] ?? status.status;
         return text(
           `Repo: ${status.repo_name || status.repo_url}\nStatus: ${statusMsg}\n` +
-          (status.started_at ? `Started: ${new Date(status.started_at).toLocaleString()}\n` : '') +
-          (status.completed_at ? `Completed: ${new Date(status.completed_at).toLocaleString()}\n` : '') +
+          (status.started_at ? `Started: ${new Date(status.started_at).toISOString()}\n` : '') +
+          (status.completed_at ? `Completed: ${new Date(status.completed_at).toISOString()}\n` : '') +
           (status.framework ? `Tech stack: ${status.framework}\n` : '')
         );
       }

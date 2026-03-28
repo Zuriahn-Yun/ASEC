@@ -1,55 +1,18 @@
-export interface ScanStatus {
-  id: string;
-  repo_url: string;
-  repo_name: string;
-  status: string;
-  framework?: string;
-  started_at?: string;
-  completed_at?: string | null;
-  error_message?: string;
-}
+import type { ScanJob } from '../../../shared/types/scan.js';
+import type { ScanFinding } from '../../../shared/types/finding.js';
+import type { Fix, ScanSummary } from '../../../shared/types/fix.js';
 
-export interface Finding {
-  id: string;
-  scan_id: string;
-  scanner: string;
-  scan_type: string;
-  severity: string;
-  title: string;
-  description?: string;
-  file_path?: string;
-  line_start?: number;
-  cwe_id?: string;
-  rule_id?: string;
-}
-
-export interface Fix {
-  id: string;
-  finding_id: string;
-  scan_id: string;
-  explanation: string;
-  original_code?: string;
-  fixed_code?: string;
-  diff_patch?: string;
-  confidence: 'high' | 'medium' | 'low';
-}
+export type { ScanJob, ScanFinding, Fix, ScanSummary };
 
 export interface FindingsResponse {
-  findings: Finding[];
+  findings: ScanFinding[];
   total: number;
 }
 
 export interface Report {
-  scan: ScanStatus;
-  summary: {
-    total_findings: number;
-    critical_count: number;
-    high_count: number;
-    medium_count: number;
-    low_count: number;
-    info_count: number;
-  } | null;
-  findings: Finding[];
+  scan: ScanJob;
+  summary: ScanSummary | null;
+  findings: ScanFinding[];
   fixes: Fix[];
   exported_at: string;
 }
@@ -82,14 +45,14 @@ export class AsecClient {
   }
 
   async startScan(repoUrl: string, branch = 'main'): Promise<{ scan_id: string }> {
-    return this.request('/api/start-scan', {
+    return this.request('/api/scan', {
       method: 'POST',
       body: JSON.stringify({ repo_url: repoUrl, branch }),
     });
   }
 
-  async getScanStatus(scanId: string): Promise<ScanStatus> {
-    return this.request(`/api/scans/${scanId}`);
+  async getScanStatus(scanId: string): Promise<ScanJob> {
+    return this.request(`/api/scan/${scanId}`);
   }
 
   async getFindings(
@@ -100,22 +63,28 @@ export class AsecClient {
     if (filters?.severity) params.set('severity', filters.severity);
     if (filters?.scan_type) params.set('scan_type', filters.scan_type);
     const qs = params.toString() ? `?${params}` : '';
-    return this.request(`/api/scans/${scanId}/findings${qs}`);
+    return this.request(`/api/scan/${scanId}/findings${qs}`);
   }
 
-  async getFindingDetail(scanId: string, findingId: string): Promise<Finding> {
-    return this.request(`/api/scans/${scanId}/findings/${findingId}`);
+  async getFindingDetail(scanId: string, findingId: string): Promise<ScanFinding> {
+    // No single-finding endpoint — fetch all findings and filter client-side
+    const { findings } = await this.getFindings(scanId);
+    const finding = findings.find((f) => f.id === findingId);
+    if (!finding) throw new Error(`Finding ${findingId} not found in scan ${scanId}`);
+    return finding;
   }
 
   async getFix(scanId: string, findingId: string): Promise<Fix | null> {
+    // No per-finding fix endpoint — fetch full report and match by finding_id
     try {
-      return await this.request(`/api/scans/${scanId}/findings/${findingId}/fix`);
+      const report = await this.getReport(scanId);
+      return report.fixes.find((f) => f.finding_id === findingId) ?? null;
     } catch {
       return null;
     }
   }
 
   async getReport(scanId: string): Promise<Report> {
-    return this.request(`/api/scans/${scanId}/report`);
+    return this.request(`/api/scan/${scanId}/report`);
   }
 }
