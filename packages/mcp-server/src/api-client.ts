@@ -1,6 +1,6 @@
-import type { ScanJob } from '../../../shared/types/scan.js';
-import type { ScanFinding } from '../../../shared/types/finding.js';
-import type { Fix, ScanSummary } from '../../../shared/types/fix.js';
+import type { ScanJob } from '../../shared/types/scan.js';
+import type { ScanFinding } from '../../shared/types/finding.js';
+import type { Fix, ScanSummary } from '../../shared/types/fix.js';
 
 export type { ScanJob, ScanFinding, Fix, ScanSummary };
 
