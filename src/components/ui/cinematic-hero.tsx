@@ -46,11 +46,11 @@ export function CinematicHero({
         { opacity: 1, y: 0, duration: 1.2, ease: "power3.out", delay: 0.3 }
       );
 
-      // Card entrance with 3D effect
+      // Card entrance
       gsap.fromTo(
         cardRef.current,
-        { opacity: 0, y: 80, rotateX: 15 },
-        { opacity: 1, y: 0, rotateX: 0, duration: 1.4, ease: "power3.out", delay: 0.6 }
+        { opacity: 0, y: 80 },
+        { opacity: 1, y: 0, duration: 1.4, ease: "power3.out", delay: 0.6 }
       );
 
       // CTA entrance
@@ -71,24 +71,6 @@ export function CinematicHero({
             gsap.set(taglineRef.current, {
               y: self.progress * -80,
               opacity: 1 - self.progress * 0.7,
-            });
-          }
-        },
-      });
-
-      // Scroll-triggered card elevation
-      ScrollTrigger.create({
-        trigger: cardRef.current,
-        start: "top 80%",
-        end: "center center",
-        scrub: 1,
-        onUpdate: (self) => {
-          if (cardRef.current) {
-            const scale = 1 + self.progress * 0.05;
-            const shadowOpacity = 0.1 + self.progress * 0.3;
-            gsap.set(cardRef.current, {
-              scale,
-              boxShadow: `0 25px 80px rgba(0,0,0,${shadowOpacity})`,
             });
           }
         },
@@ -168,22 +150,6 @@ export function CinematicHero({
                   Software Composition Analysis finds vulnerabilities in your dependencies.
                 </p>
               </div>
-            </div>
-          </div>
-
-          {/* Stats Row */}
-          <div className="mt-12 flex flex-wrap justify-center gap-8 md:gap-16">
-            <div className="text-center">
-              <div className="text-4xl md:text-5xl font-bold text-white mb-1">{metricValue}%</div>
-              <div className="text-slate-400 text-sm">{metricLabel}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl md:text-5xl font-bold text-white mb-1">3</div>
-              <div className="text-slate-400 text-sm">Scan Types</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl md:text-5xl font-bold text-white mb-1">AI</div>
-              <div className="text-slate-400 text-sm">Powered Fixes</div>
             </div>
           </div>
         </div>
