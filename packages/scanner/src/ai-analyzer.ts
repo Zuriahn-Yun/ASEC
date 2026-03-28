@@ -104,6 +104,10 @@ interface FixAIResponse {
   confidence: 'high' | 'medium' | 'low';
 }
 
+interface ExplanationAIResponse {
+  plain_explanation: string;
+}
+
 /**
  * For top critical/high findings with file paths, generate code fixes using AI.
  * Limits to 20 findings to control token usage and latency.
@@ -183,4 +187,95 @@ export async function generateFixes(
   }
 
   return fixes;
+}
+
+/**
+ * Generate plain-language explanations for findings.
+ * Explains security issues to developers with no security background.
+ * Processes findings in batches of 5-10 to control token usage.
+ */
+export async function generateExplanations(
+  findings: ScanFinding[]
+): Promise<ScanFinding[]> {
+  if (findings.length === 0) return findings;
+
+  const BATCH_SIZE = 8;
+  const client = getClient();
+  const explained: ScanFinding[] = [];
+
+  // Process in batches
+  for (let i = 0; i < findings.length; i += BATCH_SIZE) {
+    const batch = findings.slice(i, i + BATCH_SIZE);
+
+    try {
+      const response = await (client as any).ai.chat.completions.create({
+        model: 'anthropic/claude-sonnet-4-20250514',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a security expert explaining vulnerabilities to developers with NO security background.
+
+For each finding, provide a plain_explanation that covers:
+1. What's wrong — one sentence, no jargon, no CWE codes
+2. Why it matters — real-world risk in plain English
+3. How to fix — actionable step, specific to the file/line
+
+Format your response as JSON array:
+[
+  { "plain_explanation": "User input is being inserted directly into a database query on line 42 of db.py. An attacker could type specially crafted text to read, change, or delete your database. Fix: use parameterized queries instead of string concatenation." },
+  ...
+]
+
+Rules:
+- No raw CWE codes (explain what they mean)
+- No "vulnerability" without context
+- Reference specific file paths and line numbers
+- One paragraph per finding, three parts
+- Use simple language a junior developer would understand`,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(
+              batch.map((f) => ({
+                title: f.title,
+                description: f.description,
+                severity: f.severity,
+                file_path: f.file_path,
+                line_start: f.line_start,
+                line_end: f.line_end,
+                scanner: f.scanner,
+                scan_type: f.scan_type,
+                cwe_id: f.cwe_id,
+                rule_id: f.rule_id,
+              }))
+            ),
+          },
+        ],
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        console.warn('[ai-analyzer] No response from explanation generation, keeping original descriptions');
+        explained.push(...batch);
+        continue;
+      }
+
+      const explanations: ExplanationAIResponse[] = JSON.parse(content);
+
+      // Merge explanations back into findings
+      for (let j = 0; j < batch.length; j++) {
+        const finding = { ...batch[j] };
+        if (explanations[j]?.plain_explanation) {
+          finding.description = explanations[j].plain_explanation;
+        }
+        explained.push(finding);
+      }
+    } catch (err) {
+      console.error('[ai-analyzer] Explanation generation failed for batch:', err);
+      // Keep original findings on error
+      explained.push(...batch);
+    }
+  }
+
+  return explained;
 }

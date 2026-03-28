@@ -136,6 +136,36 @@ export async function insertFindings(
 }
 
 /**
+ * Update finding descriptions with plain-language explanations
+ */
+export async function updateFindingDescriptions(
+  scanId: string,
+  findings: ScanFinding[]
+): Promise<void> {
+  if (findings.length === 0) {
+    return;
+  }
+
+  // Update each finding's description in the database
+  for (const finding of findings) {
+    if (!finding.id || !finding.description) continue;
+
+    const { error: dbError } = await insforge.database
+      .from('findings')
+      .update({ description: finding.description })
+      .eq('id', finding.id)
+      .eq('scan_id', scanId);
+
+    if (dbError) {
+      console.warn(`Failed to update description for finding ${finding.id}:`, dbError);
+      // Continue with other findings - non-critical
+    }
+  }
+
+  console.log(`Updated descriptions for ${findings.length} findings`);
+}
+
+/**
  * Batch insert fixes and broadcast fix_generated events
  */
 export async function insertFixes(
