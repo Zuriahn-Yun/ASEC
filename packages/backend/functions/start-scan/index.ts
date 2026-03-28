@@ -149,6 +149,23 @@ export default async function(req: Request): Promise<Response> {
       );
     }
 
+    // Trigger the scanner pipeline (fire-and-forget)
+    const scannerUrl = Deno.env.get('SCANNER_URL') || 'http://localhost:4000';
+    try {
+      await fetch(`${scannerUrl}/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scan_id: scanData.id,
+          repo_url: body.repo_url,
+          branch: body.branch || 'main',
+        }),
+      });
+    } catch (triggerError) {
+      // Non-fatal: scan record exists, pipeline will need manual trigger
+      console.warn('Failed to trigger scanner:', triggerError);
+    }
+
     // Return scan_id
     const response: StartScanResponse = {
       scan_id: scanData.id,
