@@ -46,39 +46,21 @@ export default function NewScan() {
     setLoading(true);
     setError('');
 
-    const repoName = extractRepoName(repoUrl);
-
-    // Create scan record in scan_jobs
-    const { data: scan, error: scanError } = await insforge.database
-      .from('scan_jobs')
-      .insert([{
-        user_id: user.id,
-        repo_url: repoUrl,
-        repo_name: repoName,
-        status: 'queued',
-        started_at: new Date().toISOString(),
-      }])
-      .select()
-      .single();
-
-    if (scanError) {
-      setError('Failed to create scan: ' + scanError.message);
-      setLoading(false);
-      return;
-    }
-
-    // Trigger the start-scan serverless function
-    const { error: fnError } = await insforge.functions.invoke('start-scan', {
-      body: { repo_url: repoUrl },
+    // start-scan function creates the scan_jobs record and triggers the pipeline
+    const { data, error: fnError } = await insforge.functions.invoke('start-scan', {
+      body: { repo_url: repoUrl, branch: 'main' },
     });
 
-    if (fnError) {
-      setError('Failed to start scan: ' + fnError.message);
+    const fnData = data as { scan_id?: string; error?: string } | null;
+
+    if (fnError || !fnData?.scan_id) {
+      const msg = fnError?.message ?? fnData?.error ?? 'Unknown error';
+      setError('Failed to start scan: ' + msg);
       setLoading(false);
       return;
     }
 
-    router.push(`/scan/${scan.id}`);
+    router.push(`/scan/${fnData.scan_id}`);
   };
 
   return (
