@@ -7,9 +7,9 @@ import { runZap } from './scanners/zap.js';
 import { runNuclei } from './scanners/nuclei.js';
 import { runTrivy } from './scanners/trivy.js';
 import { runNpmAudit } from './scanners/npm-audit.js';
-import { triageFindings, generateFixes } from './ai-analyzer.js';
+import { triageFindings, generateFixes, generateExplanations } from './ai-analyzer.js';
 import type { ScanFinding } from '../../shared/types/finding.js';
-import { updateScanStatus, insertFindings, insertFixes, computeSummary } from './reporter.js';
+import { updateScanStatus, insertFindings, insertFixes, computeSummary, updateFindingDescriptions } from './reporter.js';
 import { createClient } from '@insforge/sdk';
 
 export interface PipelineJob {
@@ -179,12 +179,17 @@ async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
   // Triage findings (DB findings have real IDs — cast to ScanFinding[])
   const triaged = await triageFindings(findings as ScanFinding[]);
   
-  // Update findings with triaged severity (optional - could update DB here)
+  // Generate plain-language explanations for all findings
+  console.log(`Generating plain-language explanations for ${triaged.length} findings...`);
+  const explained = await generateExplanations(triaged);
+  
+  // Update findings in DB with plain explanations
+  await updateFindingDescriptions(scanId, explained);
   
   await updateScanStatus(scanId, 'fixing');
   
   // Generate fixes
-  const fixes = await generateFixes(triaged, repoDir, scanId);
+  const fixes = await generateFixes(explained, repoDir, scanId);
   
   await insertFixes(scanId, fixes);
 }
