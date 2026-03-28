@@ -36,7 +36,6 @@ export function CinematicHero({
   const taglineRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const ctaRef = useRef<HTMLDivElement>(null);
-  const depthCardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -99,55 +98,6 @@ export function CinematicHero({
     return () => ctx.revert();
   }, []);
 
-  // 3D mouse interaction for depth card
-  useEffect(() => {
-    const card = depthCardRef.current;
-    if (!card) return;
-
-    let rafId: number;
-    let targetRotateX = 0;
-    let targetRotateY = 0;
-    let currentRotateX = 0;
-    let currentRotateY = 0;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = card.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const mouseX = e.clientX - centerX;
-      const mouseY = e.clientY - centerY;
-
-      targetRotateY = (mouseX / rect.width) * 20;
-      targetRotateX = -(mouseY / rect.height) * 20;
-    };
-
-    const handleMouseLeave = () => {
-      targetRotateX = 0;
-      targetRotateY = 0;
-    };
-
-    const animate = () => {
-      currentRotateX += (targetRotateX - currentRotateX) * 0.1;
-      currentRotateY += (targetRotateY - currentRotateY) * 0.1;
-
-      if (card) {
-        card.style.transform = `perspective(1000px) rotateX(${currentRotateX}deg) rotateY(${currentRotateY}deg)`;
-      }
-
-      rafId = requestAnimationFrame(animate);
-    };
-
-    card.addEventListener("mousemove", handleMouseMove);
-    card.addEventListener("mouseleave", handleMouseLeave);
-    rafId = requestAnimationFrame(animate);
-
-    return () => {
-      card.removeEventListener("mousemove", handleMouseMove);
-      card.removeEventListener("mouseleave", handleMouseLeave);
-      cancelAnimationFrame(rafId);
-    };
-  }, []);
-
   return (
     <div
       ref={containerRef}
@@ -175,56 +125,65 @@ export function CinematicHero({
           </h1>
         </div>
 
-        {/* Premium Depth Card */}
-        <div
-          ref={cardRef}
-          className="w-full max-w-4xl mb-16"
-          style={{ perspective: "1000px" }}
-        >
-          <div
-            ref={depthCardRef}
-            className="relative bg-gradient-to-br from-slate-800/80 via-slate-900/90 to-slate-950/95 backdrop-blur-xl rounded-3xl p-8 md:p-12 border border-slate-700/50 shadow-2xl transition-shadow duration-300"
-            style={{ transformStyle: "preserve-3d" }}
-          >
-            {/* Glow effect */}
-            <div className="absolute -inset-1 bg-gradient-to-r from-blue-500/20 via-cyan-500/20 to-blue-500/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            
-            <div className="relative z-10 grid md:grid-cols-2 gap-8 items-center">
-              <div>
-                <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                  {cardHeading}
-                </h2>
-                <p className="text-slate-300 text-lg leading-relaxed mb-6">
-                  {cardDescription}
+        {/* Security Checks Section */}
+        <div ref={cardRef} className="w-full max-w-5xl mb-16">
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* SAST Card */}
+            <div className="group relative bg-gradient-to-b from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/30 hover:border-green-500/30 transition-all duration-300">
+              <div className="absolute inset-0 bg-gradient-to-b from-green-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="relative z-10">
+                <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center mb-4">
+                  <Shield className="w-6 h-6 text-green-400" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">SAST</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Static Analysis scans your source code for vulnerabilities before deployment.
                 </p>
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Shield className="w-4 h-4 text-green-400" />
-                    <span>SAST</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Zap className="w-4 h-4 text-yellow-400" />
-                    <span>DAST</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Lock className="w-4 h-4 text-blue-400" />
-                    <span>SCA</span>
-                  </div>
-                </div>
               </div>
-              
-              <div className="flex flex-col items-center justify-center p-6 bg-slate-800/50 rounded-2xl border border-slate-700/30">
-                <div className="text-6xl md:text-7xl font-bold bg-gradient-to-b from-white to-slate-400 bg-clip-text text-transparent">
-                  {metricValue}%
+            </div>
+
+            {/* DAST Card */}
+            <div className="group relative bg-gradient-to-b from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/30 hover:border-yellow-500/30 transition-all duration-300">
+              <div className="absolute inset-0 bg-gradient-to-b from-yellow-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="relative z-10">
+                <div className="w-12 h-12 rounded-xl bg-yellow-500/10 flex items-center justify-center mb-4">
+                  <Zap className="w-6 h-6 text-yellow-400" />
                 </div>
-                <div className="text-slate-400 text-sm mt-2">{metricLabel}</div>
-                <div className="w-full h-2 bg-slate-700 rounded-full mt-4 overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full"
-                    style={{ width: `${metricValue}%` }}
-                  />
-                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">DAST</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Dynamic Analysis tests your running application for runtime vulnerabilities.
+                </p>
               </div>
+            </div>
+
+            {/* SCA Card */}
+            <div className="group relative bg-gradient-to-b from-slate-800/50 to-slate-900/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/30 hover:border-blue-500/30 transition-all duration-300">
+              <div className="absolute inset-0 bg-gradient-to-b from-blue-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="relative z-10">
+                <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center mb-4">
+                  <Lock className="w-6 h-6 text-blue-400" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">SCA</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Software Composition Analysis finds vulnerabilities in your dependencies.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats Row */}
+          <div className="mt-12 flex flex-wrap justify-center gap-8 md:gap-16">
+            <div className="text-center">
+              <div className="text-4xl md:text-5xl font-bold text-white mb-1">{metricValue}%</div>
+              <div className="text-slate-400 text-sm">{metricLabel}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-4xl md:text-5xl font-bold text-white mb-1">3</div>
+              <div className="text-slate-400 text-sm">Scan Types</div>
+            </div>
+            <div className="text-center">
+              <div className="text-4xl md:text-5xl font-bold text-white mb-1">AI</div>
+              <div className="text-slate-400 text-sm">Powered Fixes</div>
             </div>
           </div>
         </div>
