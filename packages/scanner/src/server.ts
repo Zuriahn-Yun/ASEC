@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { runPipeline } from './orchestrator.js';
+import { checkTools } from './tool-check.js';
 
 // Validate required env vars before starting — fail fast with a clear message
 const REQUIRED_ENV = ['INSFORGE_BASE_URL', 'INSFORGE_ANON_KEY'] as const;
@@ -40,9 +41,15 @@ interface ScanTriggerRequest {
   scan_types?: { sast?: boolean; sca?: boolean; dast?: boolean };
 }
 
-// Health check endpoint
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok' });
+// Health check endpoint — returns tool availability
+app.get('/health', async (_req: Request, res: Response) => {
+  const tools = await checkTools();
+  res.json({
+    status: 'ok',
+    tools: Object.fromEntries(
+      tools.map(t => [t.name, { available: t.available, version: t.version }])
+    ),
+  });
 });
 
 // Scan trigger endpoint
