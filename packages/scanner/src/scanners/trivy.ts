@@ -82,7 +82,7 @@ export async function runTrivy(repoDir: string, scanId: string): Promise<Finding
 
     // Trivy not installed or not found -- graceful degradation
     if (message.includes('ENOENT') || message.includes('not found') || message.includes('not recognized')) {
-      console.warn('[trivy] Not installed, skipping SCA scan');
+      console.warn('[SCA] trivy not found in PATH — skipping Trivy scan. Install: https://aquasecurity.github.io/trivy/latest/getting-started/installation/');
       return [];
     }
 
