@@ -1,82 +1,64 @@
-# Hackathon
+# **PROJECT_NAME**
 
-## Stack
+A modern Next.js application with TypeScript and Tailwind CSS.
 
-- **Backend**: [InsForge](https://insforge.com) (Database, Auth, Storage, AI, Functions, Realtime)
-- **AI Coding Assistants**: Claude Code, Qoder
+## Features
 
----
+- ⚡ **Next.js 15** - React framework for production
+- 🎨 **Tailwind CSS** - Utility-first CSS framework
+- 🔥 **TypeScript** - Type-safe development
+- 📦 **App Router** - Latest Next.js routing system
+- 🌙 **Dark Mode** - Built-in dark mode support
 
-## Quick Start
+## Getting Started
 
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/Zuriahn-Yun/Hackathon.git
-cd Hackathon
-```
-
-### 2. Link InsForge
-
-This installs agent skills and generates your personal `.mcp.json` and `.insforge/` config:
+### Install Dependencies
 
 ```bash
-npx @insforge/cli link --project-id 8e2b49ec-353d-4365-bc07-f061696a90cf
+npm install
 ```
 
-> Your `.mcp.json` contains a personal API key — it is gitignored and stays local to your machine.
-
----
-
-## AI Coding Assistants
-
-### Claude Code
-
-After running the link command above, Claude Code will automatically pick up the InsForge MCP server from `.mcp.json` and the agent skills from `skills-lock.json`.
-
-### Qoder
-
-1. Run the InsForge link command above (installs skills into `.qoder/skills/` automatically).
-2. Add the InsForge MCP server to Qoder's MCP settings. Use `.mcp.json.example` as a reference — copy it to `.mcp.json` if it wasn't created automatically, then replace `YOUR_API_KEY` with your key from `.insforge/project.json`.
+### Start Development Server
 
 ```bash
-cp .mcp.json.example .mcp.json
-# Then edit .mcp.json and replace YOUR_API_KEY
+npm run dev
 ```
 
----
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## InsForge Backend
+## Available Scripts
 
-| Service   | Details                                          |
-|-----------|--------------------------------------------------|
-| URL       | `https://66wjtrxb.us-west.insforge.app`          |
-| Region    | `us-west`                                        |
-| Project   | `8e2b49ec-353d-4365-bc07-f061696a90cf`           |
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
 
-### SDK
+## Project Structure
 
-```bash
-npm install @insforge/sdk@latest
+```
+src/
+├── app/
+│   ├── layout.tsx     # Root layout
+│   ├── page.tsx       # Home page
+│   └── globals.css    # Global styles with Tailwind
 ```
 
-```javascript
-import { createClient } from '@insforge/sdk';
+## Environment Variables
 
-const client = createClient({
-  baseUrl: 'https://66wjtrxb.us-west.insforge.app',
-  anonKey: 'your-anon-key'  // from npx @insforge/cli get-metadata
-});
+Create a `.env.local` file in the root directory for environment variables:
+
+```env
+NEXT_PUBLIC_API_URL=your_api_url_here
 ```
 
-> Get your anon key: `npx @insforge/cli get-metadata --project-id 8e2b49ec-353d-4365-bc07-f061696a90cf`
+## Learn More
 
----
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Tailwind CSS Documentation](https://tailwindcss.com)
+- [TypeScript Documentation](https://www.typescriptlang.org)
 
-## Agent Skills
+## Deploy on Vercel
 
-Skills are tracked in `skills-lock.json`. The InsForge link command installs them automatically. Installed skills:
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new).
 
-- **insforge** — frontend SDK integration (auth, database, storage, AI, realtime)
-- **insforge-cli** — backend infrastructure (tables, functions, deployments, buckets)
-- **find-skills** — skill discovery
+Check out the [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
