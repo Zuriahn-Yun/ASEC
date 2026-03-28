@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@/components/InsForgeProvider';
+import { insforge } from '@/lib/insforge';
 import { 
   Shield, 
   Github, 
@@ -36,11 +37,17 @@ export default function NewScan() {
     setLoading(true);
     setError('');
 
-    // Call via same-origin API proxy to avoid CORS issues
-    // Cookies are forwarded automatically (same-origin) so no explicit auth header needed
+    // Get JWT from the in-memory InsForge SDK instance and forward it to the API route
+    // The server-side SDK needs the token explicitly (no shared cookie session server-side)
+    const token = (insforge as unknown as { tokenManager: { getAccessToken: () => string | null } })
+      .tokenManager?.getAccessToken() ?? '';
+
     const res = await fetch('/api/start-scan', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ repo_url: repoUrl, branch: 'main' }),
     });
 
