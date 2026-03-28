@@ -183,7 +183,7 @@ export default function ScanDetail() {
             <div className="flex items-center gap-3">
               <Link href="/dashboard" className="flex items-center gap-3">
                 <Shield className="w-8 h-8 text-blue-500" />
-                <span className="text-xl font-bold">SecForge</span>
+                <span className="text-xl font-bold">ASEC</span>
               </Link>
             </div>
           </div>
