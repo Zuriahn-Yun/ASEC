@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
 import { 
   Shield, 
@@ -37,28 +36,23 @@ export default function NewScan() {
     setLoading(true);
     setError('');
 
-    // Call the start-scan serverless function which creates the scan_jobs row
-    const { data: fnData, error: fnError } = await insforge.functions.invoke('start-scan', {
-      body: { repo_url: repoUrl, branch: 'main' },
+    // Call via same-origin API proxy to avoid CORS issues
+    // Cookies are forwarded automatically (same-origin) so no explicit auth header needed
+    const res = await fetch('/api/start-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo_url: repoUrl, branch: 'main' }),
     });
 
-    if (fnError) {
-      setError('Failed to start scan: ' + fnError.message);
+    const fnData = await res.json() as { scan_id?: string; error?: string };
+
+    if (!res.ok || !fnData.scan_id) {
+      setError('Failed to start scan: ' + (fnData.error || 'Unknown error'));
       setLoading(false);
       return;
     }
 
-    const scanId = (fnData as { scan_id: string }).scan_id;
-
-    // Fire-and-forget: trigger the scanner pipeline
-    const scannerUrl = process.env.NEXT_PUBLIC_SCANNER_URL || 'http://localhost:4000';
-    fetch(`${scannerUrl}/scan`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scan_id: scanId, repo_url: repoUrl }),
-    }).catch(() => {});
-
-    router.push(`/scan/${scanId}`);
+    router.push(`/scan/${fnData.scan_id}`);
   };
 
   return (
