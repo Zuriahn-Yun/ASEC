@@ -27,15 +27,6 @@ export default function NewScan() {
     dast: false,
   });
 
-  const extractRepoName = (url: string) => {
-    try {
-      const match = url.match(/github\.com\/[^/]+\/([^/]+)/);
-      return match ? match[1].replace('.git', '') : 'unknown-repo';
-    } catch {
-      return 'unknown-repo';
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -46,30 +37,9 @@ export default function NewScan() {
     setLoading(true);
     setError('');
 
-    const repoName = extractRepoName(repoUrl);
-
-    // Create scan record in scan_jobs
-    const { data: scan, error: scanError } = await insforge.database
-      .from('scan_jobs')
-      .insert([{
-        user_id: user.id,
-        repo_url: repoUrl,
-        repo_name: repoName,
-        status: 'queued',
-        started_at: new Date().toISOString(),
-      }])
-      .select()
-      .single();
-
-    if (scanError) {
-      setError('Failed to create scan: ' + scanError.message);
-      setLoading(false);
-      return;
-    }
-
-    // Trigger the start-scan serverless function
-    const { error: fnError } = await insforge.functions.invoke('start-scan', {
-      body: { repo_url: repoUrl },
+    // Call the start-scan serverless function which creates the scan_jobs row
+    const { data: fnData, error: fnError } = await insforge.functions.invoke('start-scan', {
+      body: { repo_url: repoUrl, branch: 'main' },
     });
 
     if (fnError) {
@@ -78,7 +48,17 @@ export default function NewScan() {
       return;
     }
 
-    router.push(`/scan/${scan.id}`);
+    const scanId = (fnData as { scan_id: string }).scan_id;
+
+    // Fire-and-forget: trigger the scanner pipeline
+    const scannerUrl = process.env.NEXT_PUBLIC_SCANNER_URL || 'http://localhost:4000';
+    fetch(`${scannerUrl}/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scan_id: scanId, repo_url: repoUrl }),
+    }).catch(() => {});
+
+    router.push(`/scan/${scanId}`);
   };
 
   return (
@@ -230,7 +210,7 @@ export default function NewScan() {
             <div className="text-sm text-blue-400">
               <p className="font-medium mb-1">What happens next?</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>We'll clone the repository to a secure environment</li>
+                <li>We&#39;ll clone the repository to a secure environment</li>
                 <li>Auto-detect the tech stack (Python or Node.js)</li>
                 <li>Run selected security scans in parallel</li>
                 <li>Generate AI-powered patches for found vulnerabilities</li>
