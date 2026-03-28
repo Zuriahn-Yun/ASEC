@@ -39,7 +39,7 @@ export default function NewScan() {
     const res = await fetch('/api/start-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repo_url: repoUrl, branch: 'main' }),
+      body: JSON.stringify({ repo_url: repoUrl, branch: 'main', scan_types: scanOptions }),
     });
 
     const fnData = await res.json() as { scan_id?: string; error?: string };

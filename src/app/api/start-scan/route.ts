@@ -7,7 +7,7 @@ const INSFORGE_ANON_KEY = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { repo_url, branch = 'main' } = body;
+    const { repo_url, branch = 'main', scan_types } = body;
 
     // Validate repo_url
     if (!repo_url) {
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     fetch(`${scannerUrl}/scan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scan_id: scanData.id, repo_url, branch }),
+      body: JSON.stringify({ scan_id: scanData.id, repo_url, branch, scan_types }),
     }).catch(() => {});
 
     return NextResponse.json({ scan_id: scanData.id });

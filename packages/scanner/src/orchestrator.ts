@@ -16,6 +16,7 @@ export interface PipelineJob {
   id: string;
   repo_url: string;
   branch?: string;
+  scan_types?: { sast?: boolean; sca?: boolean; dast?: boolean };
 }
 
 // Initialize InsForge client for AI analysis
@@ -34,6 +35,13 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
   let repoDir: string | undefined;
   let containerId: string | undefined;
 
+  // Default all scan types to true if not specified (backward compat)
+  const types = {
+    sast: job.scan_types?.sast !== false,
+    dast: job.scan_types?.dast !== false,
+    sca: job.scan_types?.sca !== false,
+  };
+
   try {
     // 1. Clone
     await updateScanStatus(job.id, 'cloning');
@@ -44,33 +52,43 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
     const detection = await detectFramework(repoDir);
 
     // 3. SAST (runs on source — no container needed)
-    await runSast(job.id, repoDir);
-
-    // 4. Boot app for DAST (best-effort — failure is non-fatal)
-    let dastEnabled = false;
-    let appUrl: string | undefined;
-    try {
-      await updateScanStatus(job.id, 'booting');
-      const booted = await bootApp(repoDir, detection);
-      containerId = booted.containerId;
-      appUrl = booted.appUrl;
-      dastEnabled = true;
-
-      // 5. DAST
-      await runDast(job.id, appUrl);
-    } catch {
-      // Boot failed — skip DAST, continue with SCA + AI
-    } finally {
-      if (containerId) {
-        await stopApp(containerId).catch(() => undefined);
-        containerId = undefined;
-      }
+    if (types.sast) {
+      await runSast(job.id, repoDir);
+    } else {
+      console.log('[SAST] Skipped (disabled by user)');
+      await updateScanStatus(job.id, 'scanning_sast');
     }
 
-    void dastEnabled; // acknowledged: dastEnabled used implicitly via runDast call above
+    // 4. Boot app for DAST (best-effort — failure is non-fatal)
+    if (types.dast) {
+      try {
+        await updateScanStatus(job.id, 'booting');
+        const booted = await bootApp(repoDir, detection);
+        containerId = booted.containerId;
+        const appUrl = booted.appUrl;
+
+        // 5. DAST
+        await runDast(job.id, appUrl);
+      } catch {
+        // Boot failed — skip DAST, continue with SCA + AI
+      } finally {
+        if (containerId) {
+          await stopApp(containerId).catch(() => undefined);
+          containerId = undefined;
+        }
+      }
+    } else {
+      console.log('[DAST] Skipped (disabled by user)');
+      await updateScanStatus(job.id, 'scanning_dast');
+    }
 
     // 6. SCA
-    await runSca(job.id, repoDir);
+    if (types.sca) {
+      await runSca(job.id, repoDir);
+    } else {
+      console.log('[SCA] Skipped (disabled by user)');
+      await updateScanStatus(job.id, 'scanning_sca');
+    }
 
     // 7. AI analysis + fix generation
     await runAiAnalysis(job.id, repoDir);

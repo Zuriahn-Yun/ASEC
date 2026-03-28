@@ -37,6 +37,7 @@ interface ScanTriggerRequest {
   scan_id: string;
   repo_url: string;
   branch?: string;
+  scan_types?: { sast?: boolean; sca?: boolean; dast?: boolean };
 }
 
 // Health check endpoint
@@ -64,6 +65,7 @@ app.post('/scan', (req: Request, res: Response) => {
     id: body.scan_id,
     repo_url: body.repo_url,
     branch: body.branch || 'main',
+    scan_types: body.scan_types,
   }).catch((err) => {
     console.error('Pipeline failed:', err);
   });
