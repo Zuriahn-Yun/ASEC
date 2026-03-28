@@ -28,10 +28,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Create InsForge client with the user's JWT so getCurrentUser hits /api/auth/sessions/current
+    // isServerMode: true is required — without it, getCurrentUser() ignores the edgeFunctionToken
+    // and tries to refresh via browser cookies, which don't exist in a Next.js API route.
     const insforge = createClient({
       baseUrl: INSFORGE_BASE_URL,
       anonKey: INSFORGE_ANON_KEY,
       edgeFunctionToken: token,
+      isServerMode: true,
     });
 
     // Get authenticated user
