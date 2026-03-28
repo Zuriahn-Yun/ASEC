@@ -44,6 +44,7 @@ export default function ScanDetail() {
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const scanId = params.id as string;
 
@@ -88,6 +89,42 @@ export default function ScanDetail() {
       // Future: highlight findings that have a fix available
     },
   });
+
+  const handleExport = async () => {
+    if (!scan) return;
+    setExporting(true);
+
+    const [{ data: summaryData }, { data: findingsData }, { data: fixesData }] = await Promise.all([
+      insforge.database.from('scan_summaries').select('*').eq('scan_id', scanId).single(),
+      insforge.database.from('findings').select('*').eq('scan_id', scanId).order('severity', { ascending: false }),
+      insforge.database.from('fixes').select('*').eq('scan_id', scanId),
+    ]);
+
+    const report = {
+      scan: {
+        id: scan.id,
+        repo_url: scan.repo_url,
+        repo_name: scan.repo_name,
+        status: scan.status,
+        framework: scan.framework,
+        started_at: scan.started_at,
+        completed_at: scan.completed_at,
+      },
+      summary: summaryData ?? null,
+      findings: findingsData ?? [],
+      fixes: fixesData ?? [],
+      exported_at: new Date().toISOString(),
+    };
+
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `secforge-report-${scan.repo_name}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExporting(false);
+  };
 
   useEffect(() => {
     if (isLoaded && !user) {
@@ -198,8 +235,16 @@ export default function ScanDetail() {
                 </div>
               </div>
             </div>
-            <button className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors">
-              <Download className="w-4 h-4" />
+            <button
+              onClick={handleExport}
+              disabled={exporting || scan.status !== 'complete'}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
               Export Report
             </button>
           </div>
