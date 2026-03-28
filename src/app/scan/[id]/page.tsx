@@ -8,6 +8,7 @@ import { useRealtimeScan } from '@/hooks/useRealtimeScan';
 import { SCAN_STEPS, SCAN_STEP_LABELS } from '../../../../packages/shared/constants';
 import { FindingsTable } from '@/components/FindingsTable';
 import { SeverityChart } from '@/components/SeverityChart';
+import { FindingDetail } from '@/components/FindingDetail';
 import type { ScanFinding } from '../../../../packages/shared/types/finding';
 import {
   Shield,
@@ -262,29 +263,12 @@ export default function ScanDetail() {
           </div>
         )}
 
-        {/* Finding detail panel */}
+        {/* Finding detail panel (slide-over) */}
         {selectedFinding && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setSelectedFinding(null)}>
-            <div className="bg-gray-900 rounded-xl border border-gray-800 w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between mb-4">
-                <div className="space-y-1">
-                  <h3 className="font-semibold text-lg">{selectedFinding.title}</h3>
-                  <p className="text-xs text-gray-500 font-mono">
-                    {selectedFinding.file_path}{selectedFinding.line_start ? `:${selectedFinding.line_start}` : ''}
-                  </p>
-                </div>
-                <button onClick={() => setSelectedFinding(null)} className="text-gray-500 hover:text-white">&#x2715;</button>
-              </div>
-              {selectedFinding.description && (
-                <p className="text-sm text-gray-300 mb-4">{selectedFinding.description}</p>
-              )}
-              <div className="flex items-center gap-3">
-                <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                  Generate AI Patch
-                </button>
-              </div>
-            </div>
-          </div>
+          <FindingDetail
+            finding={selectedFinding}
+            onClose={() => setSelectedFinding(null)}
+          />
         )}
       </main>
     </div>
