@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
-import { useRealtimeScan } from '@/hooks/useRealtimeScan';
+import { useScanRealtime } from '@/lib/useScanRealtime';
 import { SCAN_STEPS, SCAN_STEP_LABELS } from '../../../../packages/shared/constants';
 import { 
   Shield, 
@@ -30,17 +30,10 @@ interface Scan {
   repo_url: string;
   repo_name: string;
   status: string;
-  tech_stack: string;
-  started_at: string;
-  completed_at: string | null;
-  sast_status: string;
-  sca_status: string;
-  dast_status: string;
-  total_findings: number;
-  critical_count: number;
-  high_count: number;
-  medium_count: number;
-  low_count: number;
+  framework?: string;
+  started_at?: string;
+  completed_at?: string | null;
+  error_message?: string;
 }
 
 interface Finding {
@@ -69,24 +62,39 @@ export default function ScanDetail() {
 
   const scanId = params.id as string;
 
-  // Realtime status + live findings
-  const { status: realtimeStatus, findings: realtimeFindings } = useRealtimeScan(
-    user ? scanId : null,
-  );
+  const fetchFindings = async () => {
+    const { data } = await insforge.database
+      .from('findings')
+      .select('*')
+      .eq('scan_id', scanId)
+      .order('severity', { ascending: false });
+    if (data) setFindings(data as Finding[]);
+  };
 
-  // Merge realtime findings into local state
-  useEffect(() => {
-    if (realtimeFindings.length > 0) {
-      setFindings(realtimeFindings as unknown as Finding[]);
-    }
-  }, [realtimeFindings]);
+  const fetchScanData = async () => {
+    const { data: scanData } = await insforge.database
+      .from('scan_jobs')
+      .select('*')
+      .eq('id', scanId)
+      .single();
+    if (scanData) setScan(scanData as Scan);
+    await fetchFindings();
+    setLoading(false);
+  };
 
-  // Keep scan status in sync with realtime
-  useEffect(() => {
-    if (scan && realtimeStatus) {
-      setScan((prev) => prev ? { ...prev, status: realtimeStatus } : prev);
-    }
-  }, [realtimeStatus]);
+  // Event-driven realtime subscription — no polling
+  useScanRealtime(scanId, {
+    onStatusChange: (status, error) => {
+      setScan((prev) => prev ? { ...prev, status, error_message: error } : prev);
+      if (status === 'complete') fetchScanData();
+    },
+    onFindingBatch: () => {
+      fetchFindings();
+    },
+    onFixGenerated: () => {
+      // Future: highlight findings that have a fix available
+    },
+  });
 
   useEffect(() => {
     if (isLoaded && !user) {
@@ -97,32 +105,6 @@ export default function ScanDetail() {
       fetchScanData();
     }
   }, [user, isLoaded, scanId]);
-
-  const fetchScanData = async () => {
-    // Fetch scan details
-    const { data: scanData } = await insforge.database
-      .from('scan_jobs')
-      .select('*')
-      .eq('id', scanId)
-      .single();
-
-    if (scanData) {
-      setScan(scanData as Scan);
-    }
-
-    // Fetch findings
-    const { data: findingsData } = await insforge.database
-      .from('findings')
-      .select('*')
-      .eq('scan_id', scanId)
-      .order('severity', { ascending: false });
-
-    if (findingsData) {
-      setFindings(findingsData as Finding[]);
-    }
-
-    setLoading(false);
-  };
 
   const getSeverityColor = (severity: string) => {
     const colors = {
@@ -242,12 +224,16 @@ export default function ScanDetail() {
                     {getStatusIcon(scan.status)}
                     <span className="capitalize">{scan.status}</span>
                   </span>
-                  <span className="text-sm text-gray-500 capitalize">
-                    Tech: {scan.tech_stack || 'Unknown'}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    Started: {new Date(scan.started_at).toLocaleString()}
-                  </span>
+                  {scan.framework && (
+                    <span className="text-sm text-gray-500 capitalize">
+                      Tech: {scan.framework}
+                    </span>
+                  )}
+                  {scan.started_at && (
+                    <span className="text-sm text-gray-500">
+                      Started: {new Date(scan.started_at).toLocaleString()}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -290,29 +276,10 @@ export default function ScanDetail() {
           </div>
         </div>
 
-        {/* Findings Summary */}
-        {scan.status === 'complete' && (
-          <div className="grid grid-cols-5 gap-4 mb-6">
-            <div className="bg-gray-900 rounded-xl p-4 border border-gray-800 text-center">
-              <p className="text-2xl font-bold">{scan.total_findings}</p>
-              <p className="text-sm text-gray-400">Total</p>
-            </div>
-            <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20 text-center">
-              <p className="text-2xl font-bold text-red-500">{scan.critical_count}</p>
-              <p className="text-sm text-red-400">Critical</p>
-            </div>
-            <div className="bg-orange-500/10 rounded-xl p-4 border border-orange-500/20 text-center">
-              <p className="text-2xl font-bold text-orange-500">{scan.high_count}</p>
-              <p className="text-sm text-orange-400">High</p>
-            </div>
-            <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20 text-center">
-              <p className="text-2xl font-bold text-yellow-500">{scan.medium_count}</p>
-              <p className="text-sm text-yellow-400">Medium</p>
-            </div>
-            <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20 text-center">
-              <p className="text-2xl font-bold text-blue-500">{scan.low_count}</p>
-              <p className="text-sm text-blue-400">Low</p>
-            </div>
+        {/* Finding count badge while scanning */}
+        {findings.length > 0 && scan.status !== 'complete' && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-3 mb-4 text-sm text-gray-400">
+            <span className="font-medium text-white">{findings.length}</span> finding{findings.length !== 1 ? 's' : ''} found so far
           </div>
         )}
 
