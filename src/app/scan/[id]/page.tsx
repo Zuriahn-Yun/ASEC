@@ -10,6 +10,7 @@ import { FindingsTable } from '@/components/FindingsTable';
 import { SeverityChart } from '@/components/SeverityChart';
 import { FindingDetail } from '@/components/FindingDetail';
 import type { ScanFinding } from '../../../../packages/shared/types/finding';
+import type { ScanSummary } from '../../../../packages/shared/types/fix';
 import {
   Shield,
   ArrowLeft,
@@ -41,6 +42,8 @@ export default function ScanDetail() {
   const { user, isLoaded } = useUser();
   const [scan, setScan] = useState<ScanData | null>(null);
   const [findings, setFindings] = useState<ScanFinding[]>([]);
+  const [summary, setSummary] = useState<ScanSummary | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string>('all');
   const [selectedFinding, setSelectedFinding] = useState<ScanFinding | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,6 +90,17 @@ export default function ScanDetail() {
       setScan(scanData as ScanData);
     }
 
+    // Fetch scan summary for severity chart
+    const { data: summaryData } = await insforge.database
+      .from('scan_summaries')
+      .select('*')
+      .eq('scan_id', scanId)
+      .single();
+
+    if (summaryData) {
+      setSummary(summaryData as ScanSummary);
+    }
+
     // Fetch findings
     const { data: findingsData } = await insforge.database
       .from('findings')
@@ -99,6 +113,11 @@ export default function ScanDetail() {
     }
 
     setLoading(false);
+  };
+
+  const handleFindingClick = (findingId: string) => {
+    const found = findings.find((f) => f.id === findingId);
+    if (found) setSelectedFinding(found);
   };
 
   const getStatusIcon = (status: string) => {
@@ -247,23 +266,37 @@ export default function ScanDetail() {
         )}
 
         {/* Findings -- chart + table */}
-        {findings.length > 0 && (
+        {(findings.length > 0 || summary) && (
           <div className="space-y-6">
-            {/* Severity chart */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold mb-4">Severity Breakdown</h2>
-              <SeverityChart findings={findings} />
-            </div>
+            {/* Severity chart from scan_summaries */}
+            {summary && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+                <h2 className="text-lg font-semibold mb-4">
+                  Severity Breakdown
+                  <span className="ml-2 text-sm font-normal text-gray-400">
+                    {summary.total_findings} total
+                  </span>
+                </h2>
+                <SeverityChart summary={summary} />
+              </div>
+            )}
 
             {/* Findings table */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold mb-4">Findings</h2>
-              <FindingsTable findings={findings} onSelect={setSelectedFinding} />
-            </div>
+            {findings.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+                <h2 className="text-lg font-semibold mb-4">Findings</h2>
+                <FindingsTable
+                  findings={findings}
+                  activeFilter={activeFilter}
+                  onFilterChange={setActiveFilter}
+                  onFindingClick={handleFindingClick}
+                />
+              </div>
+            )}
           </div>
         )}
 
-        {/* Finding detail panel (slide-over) */}
+        {/* Finding detail slide-over panel */}
         {selectedFinding && (
           <FindingDetail
             finding={selectedFinding}
