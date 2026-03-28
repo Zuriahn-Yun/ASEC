@@ -8,7 +8,7 @@ const COLORS: Record<SeverityLevel, { bg: string; text: string; border: string }
   info:     { bg: 'bg-[#6b7280]/10', text: 'text-[#6b7280]', border: 'border-[#6b7280]/30' },
 };
 
-export function SeverityBadge({ severity }: { severity: SeverityLevel }): JSX.Element {
+export function SeverityBadge({ severity }: { severity: SeverityLevel }) {
   const c = COLORS[severity];
   return (
     <span

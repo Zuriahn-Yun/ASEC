@@ -17,7 +17,7 @@ interface Props {
   onSelect: (f: ScanFinding) => void;
 }
 
-export function FindingsTable({ findings, onSelect }: Props): JSX.Element {
+export function FindingsTable({ findings, onSelect }: Props) {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [scannerFilter, setScannerFilter] = useState<ScannerType | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<ScanCategory | 'all'>('all');

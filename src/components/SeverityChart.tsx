@@ -13,7 +13,7 @@ const SEVERITY_COLORS: Record<SeverityLevel, string> = {
 
 const ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'info'];
 
-export function SeverityChart({ findings }: { findings: ScanFinding[] }): JSX.Element {
+export function SeverityChart({ findings }: { findings: ScanFinding[] }) {
   const counts = ORDER.reduce<Record<SeverityLevel, number>>(
     (acc, sev) => ({ ...acc, [sev]: 0 }),
     {} as Record<SeverityLevel, number>,
