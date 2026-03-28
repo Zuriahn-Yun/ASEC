@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     const insforge = createClient({
       baseUrl: INSFORGE_BASE_URL,
       anonKey: INSFORGE_ANON_KEY,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
 
     // Verify user is authenticated

@@ -36,8 +36,9 @@ export default function NewScan() {
     setLoading(true);
     setError('');
 
-    // Call the public API to start a scan
-    const res = await fetch('/api/scan', {
+    // Call via same-origin API proxy to avoid CORS issues
+    // Cookies are forwarded automatically (same-origin) so no explicit auth header needed
+    const res = await fetch('/api/start-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo_url: repoUrl, branch: 'main' }),

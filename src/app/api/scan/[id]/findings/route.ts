@@ -19,16 +19,20 @@ export async function GET(
     }
 
     const { id: scanId } = await params;
+    const token = authHeader.replace('Bearer ', '');
 
     // Parse query parameters
     const { searchParams } = new URL(req.url);
     const severityFilter = searchParams.get('severity');
     const scanTypeFilter = searchParams.get('scan_type');
 
-    // Create InsForge client
+    // Create InsForge client with user's token
     const insforge = createClient({
       baseUrl: INSFORGE_BASE_URL,
       anonKey: INSFORGE_ANON_KEY,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
     });
 
     // Verify user is authenticated
