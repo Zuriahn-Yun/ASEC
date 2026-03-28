@@ -17,7 +17,7 @@ let _client: ReturnType<typeof createClient> | null = null;
 
 function getClient(): ReturnType<typeof createClient> {
   if (!_client) {
-    const baseUrl = process.env.INSFORGE_URL || process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || 'https://66wjtrxb.us-west.insforge.app';
+    const baseUrl = process.env.INSFORGE_URL || process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
     const anonKey = process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
     _client = createClient({ baseUrl, anonKey });
   }

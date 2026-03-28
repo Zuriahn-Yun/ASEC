@@ -53,7 +53,7 @@ gh issue comment <N> --body "CONTRACT REQUEST: Need <TypeName> with fields: <des
 - **Scanner**: `packages/scanner/` (Node.js orchestrator)
 - **Backend**: `packages/backend/` (InsForge serverless functions + SQL)
 - **Shared types**: `packages/shared/types/`
-- **InsForge URL**: `https://66wjtrxb.us-west.insforge.app`
+- **InsForge URL**: `https://q777fgkd.us-west.insforge.app`
 - **InsForge SDK**: `@insforge/sdk@latest` -- returns `{data, error}`, inserts use `[{...}]`
 - **Shared types**: `packages/shared/types/` -- the integration contract between all packages
 - See `AGENTS.md` for full InsForge SDK documentation

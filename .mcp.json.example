@@ -5,7 +5,7 @@
       "args": ["-y", "@insforge/mcp@latest"],
       "env": {
         "API_KEY": "YOUR_API_KEY",
-        "API_BASE_URL": "https://66wjtrxb.us-west.insforge.app"
+        "API_BASE_URL": "https://q777fgkd.us-west.insforge.app"
       }
     }
   }
