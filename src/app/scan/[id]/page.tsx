@@ -10,6 +10,7 @@ import { FindingsTable } from '@/components/FindingsTable';
 import { SeverityChart } from '@/components/SeverityChart';
 import { FindingDetail } from '@/components/FindingDetail';
 import type { ScanFinding } from '../../../../packages/shared/types/finding';
+import type { ScanSummary } from '../../../../packages/shared/types/fix';
 import {
   Shield,
   ArrowLeft,
@@ -18,7 +19,6 @@ import {
   CheckCircle,
   Loader2,
   GitBranch,
-  Clock,
   Download
 } from 'lucide-react';
 import Link from 'next/link';
@@ -41,8 +41,11 @@ export default function ScanDetail() {
   const { user, isLoaded } = useUser();
   const [scan, setScan] = useState<ScanData | null>(null);
   const [findings, setFindings] = useState<ScanFinding[]>([]);
+  const [summary, setSummary] = useState<ScanSummary | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string>('all');
   const [selectedFinding, setSelectedFinding] = useState<ScanFinding | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const scanId = params.id as string;
 
@@ -62,6 +65,14 @@ export default function ScanDetail() {
       .eq('id', scanId)
       .single();
     if (scanData) setScan(scanData as ScanData);
+
+    const { data: summaryData } = await insforge.database
+      .from('scan_summaries')
+      .select('*')
+      .eq('scan_id', scanId)
+      .single();
+    if (summaryData) setSummary(summaryData as ScanSummary);
+
     await fetchFindings();
     setLoading(false);
   };
@@ -79,6 +90,42 @@ export default function ScanDetail() {
       // Future: highlight findings that have a fix available
     },
   });
+
+  const handleExport = async () => {
+    if (!scan) return;
+    setExporting(true);
+
+    const [{ data: summaryData }, { data: findingsData }, { data: fixesData }] = await Promise.all([
+      insforge.database.from('scan_summaries').select('*').eq('scan_id', scanId).single(),
+      insforge.database.from('findings').select('*').eq('scan_id', scanId).order('severity', { ascending: false }),
+      insforge.database.from('fixes').select('*').eq('scan_id', scanId),
+    ]);
+
+    const report = {
+      scan: {
+        id: scan.id,
+        repo_url: scan.repo_url,
+        repo_name: scan.repo_name,
+        status: scan.status,
+        framework: scan.framework,
+        started_at: scan.started_at,
+        completed_at: scan.completed_at,
+      },
+      summary: summaryData ?? null,
+      findings: findingsData ?? [],
+      fixes: fixesData ?? [],
+      exported_at: new Date().toISOString(),
+    };
+
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `secforge-report-${scan.repo_name}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExporting(false);
+  };
 
   useEffect(() => {
     if (isLoaded && !user) {
@@ -189,8 +236,16 @@ export default function ScanDetail() {
                 </div>
               </div>
             </div>
-            <button className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors">
-              <Download className="w-4 h-4" />
+            <button
+              onClick={handleExport}
+              disabled={exporting || scan.status !== 'complete'}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
               Export Report
             </button>
           </div>
@@ -236,19 +291,36 @@ export default function ScanDetail() {
         )}
 
         {/* Findings — chart + table */}
-        {findings.length > 0 && (
+        {(findings.length > 0 || summary) && (
           <div className="space-y-6">
-            {/* Severity chart */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold mb-4">Severity Breakdown</h2>
-              <SeverityChart findings={findings} />
-            </div>
+            {/* Severity chart from scan_summaries */}
+            {summary && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+                <h2 className="text-lg font-semibold mb-4">
+                  Severity Breakdown
+                  <span className="ml-2 text-sm font-normal text-gray-400">
+                    {summary.total_findings} total
+                  </span>
+                </h2>
+                <SeverityChart summary={summary} findings={findings} />
+              </div>
+            )}
 
             {/* Findings table */}
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-              <h2 className="text-lg font-semibold mb-4">Findings</h2>
-              <FindingsTable findings={findings} onSelect={setSelectedFinding} />
-            </div>
+            {findings.length > 0 && (
+              <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+                <h2 className="text-lg font-semibold mb-4">Findings</h2>
+                <FindingsTable
+                  findings={findings}
+                  activeFilter={activeFilter}
+                  onFilterChange={setActiveFilter}
+                  onFindingClick={(findingId) => {
+                    const found = findings.find((f) => f.id === findingId);
+                    if (found) setSelectedFinding(found);
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 

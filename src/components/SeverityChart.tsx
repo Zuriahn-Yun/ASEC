@@ -2,35 +2,52 @@
 
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { ScanFinding, SeverityLevel } from '../../packages/shared/types/finding';
+import type { ScanSummary } from '../../packages/shared/types/fix';
+import { SEVERITY_COLORS } from '../../packages/shared/constants';
 
-const SEVERITY_COLORS: Record<SeverityLevel, string> = {
-  critical: '#dc2626',
-  high:     '#ea580c',
-  medium:   '#ca8a04',
-  low:      '#2563eb',
-  info:     '#6b7280',
-};
+interface SeverityChartProps {
+  summary?: ScanSummary | null;
+  findings?: ScanFinding[];
+}
 
-const ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'info'];
+type SeverityKey = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
-export function SeverityChart({ findings }: { findings: ScanFinding[] }) {
-  const counts = ORDER.reduce<Record<SeverityLevel, number>>(
-    (acc, sev) => ({ ...acc, [sev]: 0 }),
-    {} as Record<SeverityLevel, number>,
-  );
+const SEVERITY_FIELDS: { key: SeverityKey; label: string; field: keyof ScanSummary }[] = [
+  { key: 'critical', label: 'Critical', field: 'critical_count' },
+  { key: 'high',     label: 'High',     field: 'high_count' },
+  { key: 'medium',   label: 'Medium',   field: 'medium_count' },
+  { key: 'low',      label: 'Low',      field: 'low_count' },
+  { key: 'info',     label: 'Info',     field: 'info_count' },
+];
 
-  for (const f of findings) {
-    counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+export function SeverityChart({ summary, findings }: SeverityChartProps) {
+  let data: { key: SeverityKey; name: string; value: number }[];
+
+  if (summary) {
+    data = SEVERITY_FIELDS
+      .map(({ key, label, field }) => ({
+        key,
+        name: label,
+        value: (summary[field] as number) ?? 0,
+      }))
+      .filter((d) => d.value > 0);
+  } else {
+    const counts: Record<SeverityKey, number> = {
+      critical: 0, high: 0, medium: 0, low: 0, info: 0,
+    };
+    for (const f of findings ?? []) {
+      const sev = f.severity as SeverityKey;
+      if (sev in counts) counts[sev]++;
+    }
+    data = SEVERITY_FIELDS
+      .filter(({ key }) => counts[key] > 0)
+      .map(({ key, label }) => ({ key, name: label, value: counts[key] }));
   }
-
-  const data = ORDER
-    .filter((sev) => counts[sev] > 0)
-    .map((sev) => ({ name: sev.charAt(0).toUpperCase() + sev.slice(1), value: counts[sev], sev }));
 
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
-        No findings yet
+        No findings to display
       </div>
     );
   }
@@ -48,7 +65,7 @@ export function SeverityChart({ findings }: { findings: ScanFinding[] }) {
           dataKey="value"
         >
           {data.map((entry) => (
-            <Cell key={entry.sev} fill={SEVERITY_COLORS[entry.sev]} />
+            <Cell key={entry.key} fill={SEVERITY_COLORS[entry.key]} />
           ))}
         </Pie>
         <Tooltip
