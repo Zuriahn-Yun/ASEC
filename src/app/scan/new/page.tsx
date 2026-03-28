@@ -48,18 +48,16 @@ export default function NewScan() {
 
     const repoName = extractRepoName(repoUrl);
 
-    // Create scan record
+    // Create scan record in scan_jobs
     const { data: scan, error: scanError } = await insforge.database
-      .from('scans')
-      .insert({
+      .from('scan_jobs')
+      .insert([{
         user_id: user.id,
         repo_url: repoUrl,
         repo_name: repoName,
-        status: 'pending',
-        sast_status: scanOptions.sast ? 'pending' : 'skipped',
-        sca_status: scanOptions.sca ? 'pending' : 'skipped',
-        dast_status: scanOptions.dast ? 'pending' : 'skipped',
-      })
+        status: 'queued',
+        started_at: new Date().toISOString(),
+      }])
       .select()
       .single();
 
@@ -69,18 +67,15 @@ export default function NewScan() {
       return;
     }
 
-    // Trigger the serverless function to start scanning
-    try {
-      await insforge.functions.invoke('start-security-scan', {
-        body: {
-          scanId: scan.id,
-          repoUrl,
-          options: scanOptions,
-        },
-      });
-    } catch (err) {
-      // Function might not exist yet, that's okay for now
-      console.log('Scan function not ready, scan created but not started');
+    // Trigger the start-scan serverless function
+    const { error: fnError } = await insforge.functions.invoke('start-scan', {
+      body: { repo_url: repoUrl },
+    });
+
+    if (fnError) {
+      setError('Failed to start scan: ' + fnError.message);
+      setLoading(false);
+      return;
     }
 
     router.push(`/scan/${scan.id}`);
