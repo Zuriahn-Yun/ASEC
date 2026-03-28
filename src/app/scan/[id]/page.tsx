@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
-import { useRealtimeScan } from '@/hooks/useRealtimeScan';
+import { useScanRealtime } from '@/lib/useScanRealtime';
 import { SCAN_STEPS, SCAN_STEP_LABELS } from '../../../../packages/shared/constants';
 import { FindingsTable } from '@/components/FindingsTable';
 import { SeverityChart } from '@/components/SeverityChart';
@@ -22,22 +22,15 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-interface Scan {
+interface ScanData {
   id: string;
   repo_url: string;
   repo_name: string;
   status: string;
-  tech_stack: string;
-  started_at: string;
-  completed_at: string | null;
-  sast_status: string;
-  sca_status: string;
-  dast_status: string;
-  total_findings: number;
-  critical_count: number;
-  high_count: number;
-  medium_count: number;
-  low_count: number;
+  framework?: string;
+  started_at?: string;
+  completed_at?: string | null;
+  error_message?: string;
 }
 
 
@@ -45,31 +38,46 @@ export default function ScanDetail() {
   const params = useParams();
   const router = useRouter();
   const { user, isLoaded } = useUser();
-  const [scan, setScan] = useState<Scan | null>(null);
+  const [scan, setScan] = useState<ScanData | null>(null);
   const [findings, setFindings] = useState<ScanFinding[]>([]);
   const [selectedFinding, setSelectedFinding] = useState<ScanFinding | null>(null);
   const [loading, setLoading] = useState(true);
 
   const scanId = params.id as string;
 
-  // Realtime status + live findings
-  const { status: realtimeStatus, findings: realtimeFindings } = useRealtimeScan(
-    user ? scanId : null,
-  );
+  const fetchFindings = async () => {
+    const { data } = await insforge.database
+      .from('findings')
+      .select('*')
+      .eq('scan_id', scanId)
+      .order('severity', { ascending: false });
+    if (data) setFindings(data as ScanFinding[]);
+  };
 
-  // Merge realtime findings into local state
-  useEffect(() => {
-    if (realtimeFindings.length > 0) {
-      setFindings(realtimeFindings as unknown as ScanFinding[]);
-    }
-  }, [realtimeFindings]);
+  const fetchScanData = async () => {
+    const { data: scanData } = await insforge.database
+      .from('scan_jobs')
+      .select('*')
+      .eq('id', scanId)
+      .single();
+    if (scanData) setScan(scanData as ScanData);
+    await fetchFindings();
+    setLoading(false);
+  };
 
-  // Keep scan status in sync with realtime
-  useEffect(() => {
-    if (scan && realtimeStatus) {
-      setScan((prev) => prev ? { ...prev, status: realtimeStatus } : prev);
-    }
-  }, [realtimeStatus]);
+  // Event-driven realtime subscription — no polling
+  useScanRealtime(scanId, {
+    onStatusChange: (status, error) => {
+      setScan((prev) => prev ? { ...prev, status, error_message: error } : prev);
+      if (status === 'complete') fetchScanData();
+    },
+    onFindingBatch: () => {
+      fetchFindings();
+    },
+    onFixGenerated: () => {
+      // Future: highlight findings that have a fix available
+    },
+  });
 
   useEffect(() => {
     if (isLoaded && !user) {
@@ -80,32 +88,6 @@ export default function ScanDetail() {
       fetchScanData();
     }
   }, [user, isLoaded, scanId]);
-
-  const fetchScanData = async () => {
-    // Fetch scan details
-    const { data: scanData } = await insforge.database
-      .from('scan_jobs')
-      .select('*')
-      .eq('id', scanId)
-      .single();
-
-    if (scanData) {
-      setScan(scanData as Scan);
-    }
-
-    // Fetch findings
-    const { data: findingsData } = await insforge.database
-      .from('findings')
-      .select('*')
-      .eq('scan_id', scanId)
-      .order('severity', { ascending: false });
-
-    if (findingsData) {
-      setFindings(findingsData as ScanFinding[]);
-    }
-
-    setLoading(false);
-  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -132,7 +114,7 @@ export default function ScanDetail() {
         <div className="text-center">
           <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-red-500" />
           <h1 className="text-2xl font-bold mb-2">Scan Not Found</h1>
-          <p className="text-gray-400 mb-6">The scan you're looking for doesn't exist</p>
+          <p className="text-gray-400 mb-6">The scan you&apos;re looking for doesn&apos;t exist</p>
           <Link
             href="/dashboard"
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
@@ -193,12 +175,16 @@ export default function ScanDetail() {
                     {getStatusIcon(scan.status)}
                     <span className="capitalize">{scan.status}</span>
                   </span>
-                  <span className="text-sm text-gray-500 capitalize">
-                    Tech: {scan.tech_stack || 'Unknown'}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    Started: {new Date(scan.started_at).toLocaleString()}
-                  </span>
+                  {scan.framework && (
+                    <span className="text-sm text-gray-500 capitalize">
+                      Tech: {scan.framework}
+                    </span>
+                  )}
+                  {scan.started_at && (
+                    <span className="text-sm text-gray-500">
+                      Started: {new Date(scan.started_at).toLocaleString()}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -240,6 +226,13 @@ export default function ScanDetail() {
             </div>
           </div>
         </div>
+
+        {/* Finding count badge while scanning */}
+        {findings.length > 0 && scan.status !== 'complete' && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 px-5 py-3 mb-4 text-sm text-gray-400">
+            <span className="font-medium text-white">{findings.length}</span> finding{findings.length !== 1 ? 's' : ''} found so far
+          </div>
+        )}
 
         {/* Findings — chart + table */}
         {findings.length > 0 && (
