@@ -3,6 +3,7 @@ import { createClient } from '@insforge/sdk';
 
 const INSFORGE_BASE_URL = process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
 const INSFORGE_ANON_KEY = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
+const INSFORGE_API_KEY = process.env.INSFORGE_API_KEY || '';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,25 +21,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid GitHub URL' }, { status: 400 });
     }
 
-    // Forward browser cookies so InsForge can authenticate via httpOnly session cookies
+    // Verify identity via cookie-forwarded auth client (anon key, not service key)
     const cookieHeader = req.headers.get('cookie') || '';
-    const insforge = createClient({
+    const authClient = createClient({
       baseUrl: INSFORGE_BASE_URL,
       anonKey: INSFORGE_ANON_KEY,
       headers: { Cookie: cookieHeader },
     });
 
-    // Get authenticated user
-    const { data: userData, error: authError } = await insforge.auth.getCurrentUser();
+    const { data: userData, error: authError } = await authClient.auth.getCurrentUser();
     if (authError || !userData?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Use service key for DB insert — bypasses short-lived token expiry without trusting client-supplied user_id
+    const serviceClient = createClient({
+      baseUrl: INSFORGE_BASE_URL,
+      anonKey: INSFORGE_API_KEY,
+    });
+
     // Extract repo name from URL
     const repoName = new URL(repo_url).pathname.split('/').filter(Boolean)[1]?.replace('.git', '') || 'unknown';
 
-    // Insert scan job directly via SDK (bypasses dead edge function)
-    const { data: scanData, error: dbError } = await insforge.database
+    // Insert scan job using server-verified user_id
+    const { data: scanData, error: dbError } = await serviceClient.database
       .from('scan_jobs')
       .insert([{
         user_id: userData.user.id,
