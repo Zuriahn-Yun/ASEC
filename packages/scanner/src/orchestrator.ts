@@ -19,8 +19,8 @@ export interface PipelineJob {
 
 // Initialize InsForge client for AI analysis
 const insforge = createClient({
-  baseUrl: process.env.INSFORGE_BASE_URL || '',
-  anonKey: process.env.INSFORGE_ANON_KEY || '',
+  baseUrl: process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '',
+  anonKey: process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '',
 });
 
 /**
