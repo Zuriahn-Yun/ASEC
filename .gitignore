@@ -67,3 +67,4 @@ Thumbs.db
 # Scanner temp files
 /tmp-scan-*
 
+**/node_modules
