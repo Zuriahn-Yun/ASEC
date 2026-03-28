@@ -11,6 +11,7 @@ import { triageFindings, generateFixes, generateExplanations } from './ai-analyz
 import type { ScanFinding } from '../../shared/types/finding.js';
 import { updateScanStatus, insertFindings, insertFixes, computeSummary, updateFindingDescriptions } from './reporter.js';
 import { createClient } from '@insforge/sdk';
+import { checkTools } from './tool-check.js';
 
 export interface PipelineJob {
   id: string;
@@ -43,6 +44,13 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
   };
 
   try {
+    // Pre-flight: log which scanner tools are available
+    const tools = await checkTools();
+    console.log('=== Scanner Tool Availability ===');
+    for (const t of tools) {
+      console.log(`  ${t.name}: ${t.available ? '\u2713 (' + t.version + ')' : '\u2717 NOT FOUND'}`);
+    }
+
     // 1. Clone
     await updateScanStatus(job.id, 'cloning');
     repoDir = await cloneRepo(job.repo_url, job.branch);
