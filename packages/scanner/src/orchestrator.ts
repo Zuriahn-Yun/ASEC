@@ -8,6 +8,7 @@ import { runNuclei } from './scanners/nuclei.js';
 import { runTrivy } from './scanners/trivy.js';
 import { runNpmAudit } from './scanners/npm-audit.js';
 import { triageFindings, generateFixes } from './ai-analyzer.js';
+import type { ScanFinding } from '../../shared/types/finding.js';
 import { updateScanStatus, insertFindings, insertFixes, computeSummary } from './reporter.js';
 import { createClient } from '@insforge/sdk';
 
@@ -175,8 +176,8 @@ async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
     return;
   }
   
-  // Triage findings
-  const triaged = await triageFindings(findings);
+  // Triage findings (DB findings have real IDs — cast to ScanFinding[])
+  const triaged = await triageFindings(findings as ScanFinding[]);
   
   // Update findings with triaged severity (optional - could update DB here)
   
