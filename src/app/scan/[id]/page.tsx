@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { insforge } from '@/lib/insforge';
 import { useUser } from '@/components/InsForgeProvider';
-import { useScanRealtime } from '@/lib/useScanRealtime';
+import { useRealtimeScan } from '@/hooks/useRealtimeScan';
 import { SCAN_STEPS, SCAN_STEP_LABELS } from '../../../../packages/shared/constants';
 import { FindingsTable } from '@/components/FindingsTable';
 import { SeverityChart } from '@/components/SeverityChart';
@@ -45,39 +45,24 @@ export default function ScanDetail() {
 
   const scanId = params.id as string;
 
-  const fetchFindings = async () => {
-    const { data } = await insforge.database
-      .from('findings')
-      .select('*')
-      .eq('scan_id', scanId)
-      .order('severity', { ascending: false });
-    if (data) setFindings(data as ScanFinding[]);
-  };
+  // Realtime status + live findings
+  const { status: realtimeStatus, findings: realtimeFindings } = useRealtimeScan(
+    user ? scanId : null,
+  );
 
-  const fetchScanData = async () => {
-    const { data: scanData } = await insforge.database
-      .from('scan_jobs')
-      .select('*')
-      .eq('id', scanId)
-      .single();
-    if (scanData) setScan(scanData as ScanData);
-    await fetchFindings();
-    setLoading(false);
-  };
+  // Merge realtime findings into local state
+  useEffect(() => {
+    if (realtimeFindings.length > 0) {
+      setFindings(realtimeFindings as unknown as ScanFinding[]);
+    }
+  }, [realtimeFindings]);
 
-  // Event-driven realtime subscription — no polling
-  useScanRealtime(scanId, {
-    onStatusChange: (status, error) => {
-      setScan((prev) => prev ? { ...prev, status, error_message: error } : prev);
-      if (status === 'complete') fetchScanData();
-    },
-    onFindingBatch: () => {
-      fetchFindings();
-    },
-    onFixGenerated: () => {
-      // Future: highlight findings that have a fix available
-    },
-  });
+  // Keep scan status in sync with realtime
+  useEffect(() => {
+    if (scan && realtimeStatus) {
+      setScan((prev) => prev ? { ...prev, status: realtimeStatus } : prev);
+    }
+  }, [realtimeStatus]);
 
   useEffect(() => {
     if (isLoaded && !user) {
@@ -88,6 +73,32 @@ export default function ScanDetail() {
       fetchScanData();
     }
   }, [user, isLoaded, scanId]);
+
+  const fetchScanData = async () => {
+    // Fetch scan details
+    const { data: scanData } = await insforge.database
+      .from('scan_jobs')
+      .select('*')
+      .eq('id', scanId)
+      .single();
+
+    if (scanData) {
+      setScan(scanData as ScanData);
+    }
+
+    // Fetch findings
+    const { data: findingsData } = await insforge.database
+      .from('findings')
+      .select('*')
+      .eq('scan_id', scanId)
+      .order('severity', { ascending: false });
+
+    if (findingsData) {
+      setFindings(findingsData as ScanFinding[]);
+    }
+
+    setLoading(false);
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -234,7 +245,7 @@ export default function ScanDetail() {
           </div>
         )}
 
-        {/* Findings — chart + table */}
+        {/* Findings -- chart + table */}
         {findings.length > 0 && (
           <div className="space-y-6">
             {/* Severity chart */}

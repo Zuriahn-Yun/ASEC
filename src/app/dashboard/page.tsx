@@ -3,28 +3,42 @@
 import { useState, useEffect } from 'react';
 import { useUser } from '@/components/InsForgeProvider';
 import { insforge } from '@/lib/insforge';
-import { 
-  Shield, 
-  Scan, 
-  AlertTriangle, 
-  CheckCircle, 
-  GitBranch, 
+import {
+  Shield,
+  Scan,
+  AlertTriangle,
+  CheckCircle,
+  GitBranch,
   Clock,
   ChevronRight,
   Plus,
-  LogOut,
-  User
+  LogOut
 } from 'lucide-react';
 import Link from 'next/link';
 
-interface Scan {
+interface ScanJobRow {
   id: string;
   repo_url: string;
   repo_name: string;
   status: string;
-  tech_stack: string;
-  started_at: string;
+  framework: string | null;
+  started_at: string | null;
   completed_at: string | null;
+  created_at: string;
+}
+
+interface SummaryRow {
+  scan_id: string;
+  total_findings: number;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  info_count: number;
+  fixes_generated: number;
+}
+
+interface ScanWithSummary extends ScanJobRow {
   total_findings: number;
   critical_count: number;
   high_count: number;
@@ -34,7 +48,7 @@ interface Scan {
 
 export default function Dashboard() {
   const { user, isLoaded, signOut } = useUser();
-  const [scans, setScans] = useState<Scan[]>([]);
+  const [scans, setScans] = useState<ScanWithSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalScans: 0,
@@ -50,24 +64,54 @@ export default function Dashboard() {
   }, [user]);
 
   const fetchScans = async () => {
-    const { data, error } = await insforge.database
-      .from('scans')
+    const { data: jobsData } = await insforge.database
+      .from('scan_jobs')
       .select('*')
       .eq('user_id', user?.id)
       .order('created_at', { ascending: false });
 
-    if (data) {
-      setScans(data as Scan[]);
-      calculateStats(data as Scan[]);
+    if (!jobsData || jobsData.length === 0) {
+      setLoading(false);
+      return;
     }
+
+    const jobs = jobsData as ScanJobRow[];
+    const scanIds = jobs.map((j) => j.id);
+
+    const { data: summariesData } = await insforge.database
+      .from('scan_summaries')
+      .select('*')
+      .in('scan_id', scanIds);
+
+    const summaryMap = new Map<string, SummaryRow>();
+    if (summariesData) {
+      for (const s of summariesData as SummaryRow[]) {
+        summaryMap.set(s.scan_id, s);
+      }
+    }
+
+    const merged: ScanWithSummary[] = jobs.map((job) => {
+      const summary = summaryMap.get(job.id);
+      return {
+        ...job,
+        total_findings: summary?.total_findings ?? 0,
+        critical_count: summary?.critical_count ?? 0,
+        high_count: summary?.high_count ?? 0,
+        medium_count: summary?.medium_count ?? 0,
+        low_count: summary?.low_count ?? 0,
+      };
+    });
+
+    setScans(merged);
+    calculateStats(merged);
     setLoading(false);
   };
 
-  const calculateStats = (scanData: Scan[]) => {
+  const calculateStats = (scanData: ScanWithSummary[]) => {
     const totalScans = scanData.length;
-    const totalFindings = scanData.reduce((sum, scan) => sum + scan.total_findings, 0);
-    const criticalFindings = scanData.reduce((sum, scan) => sum + scan.critical_count, 0);
-    
+    const totalFindings = scanData.reduce((sum, s) => sum + s.total_findings, 0);
+    const criticalFindings = scanData.reduce((sum, s) => sum + s.critical_count, 0);
+
     setStats({
       totalScans,
       totalFindings,
@@ -76,22 +120,11 @@ export default function Dashboard() {
     });
   };
 
-  const getSeverityColor = (critical: number, high: number, medium: number, low: number) => {
-    if (critical > 0) return 'text-red-500';
-    if (high > 0) return 'text-orange-500';
-    if (medium > 0) return 'text-yellow-500';
-    if (low > 0) return 'text-blue-500';
-    return 'text-green-500';
-  };
-
   const getStatusBadge = (status: string) => {
-    const styles = {
-      pending: 'bg-yellow-500/20 text-yellow-400',
-      running: 'bg-blue-500/20 text-blue-400',
-      completed: 'bg-green-500/20 text-green-400',
-      failed: 'bg-red-500/20 text-red-400',
-    };
-    return styles[status as keyof typeof styles] || 'bg-gray-500/20 text-gray-400';
+    if (status === 'complete') return 'bg-green-500/20 text-green-400';
+    if (status === 'failed') return 'bg-red-500/20 text-red-400';
+    if (status === 'queued') return 'bg-yellow-500/20 text-yellow-400';
+    return 'bg-blue-500/20 text-blue-400';
   };
 
   if (!isLoaded) {
@@ -109,7 +142,7 @@ export default function Dashboard() {
           <Shield className="w-16 h-16 mx-auto mb-4 text-blue-500" />
           <h1 className="text-2xl font-bold mb-4">Welcome to SecForge</h1>
           <p className="text-gray-400 mb-6">Please sign in to access your security dashboard</p>
-          <Link 
+          <Link
             href="/sign-in"
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
           >
@@ -223,7 +256,7 @@ export default function Dashboard() {
                   <tr>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Repository</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Tech Stack</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Framework</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Findings</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Started</th>
                     <th className="px-6 py-4 text-right text-sm font-medium text-gray-400">Action</th>
@@ -247,7 +280,7 @@ export default function Dashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm capitalize">{scan.tech_stack || 'Unknown'}</span>
+                        <span className="text-sm capitalize">{scan.framework || 'Unknown'}</span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -278,7 +311,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-2 text-gray-400">
                           <Clock className="w-4 h-4" />
                           <span className="text-sm">
-                            {new Date(scan.started_at).toLocaleDateString()}
+                            {scan.started_at ? new Date(scan.started_at).toLocaleDateString() : new Date(scan.created_at).toLocaleDateString()}
                           </span>
                         </div>
                       </td>
