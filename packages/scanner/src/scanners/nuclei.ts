@@ -56,7 +56,7 @@ export async function runNuclei(
     try {
       await execAsync('which nuclei');
     } catch {
-      console.warn('Nuclei not found in PATH, returning empty array');
+      console.warn('[DAST] nuclei not found in PATH — skipping Nuclei scan. Install: go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest');
       return [];
     }
 

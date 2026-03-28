@@ -85,7 +85,7 @@ export async function runZap(
     try {
       await execAsync('which docker');
     } catch {
-      console.warn('Docker not found in PATH, returning empty array');
+      console.warn('[DAST] docker not found in PATH — skipping ZAP scan. Install: https://docs.docker.com/get-docker/');
       return [];
     }
 
