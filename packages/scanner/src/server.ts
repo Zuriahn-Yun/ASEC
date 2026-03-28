@@ -1,6 +1,17 @@
 import express, { Request, Response } from 'express';
 import { runPipeline } from './orchestrator.js';
 
+// Validate required env vars before starting — fail fast with a clear message
+const REQUIRED_ENV = ['INSFORGE_BASE_URL', 'INSFORGE_ANON_KEY'] as const;
+
+for (const key of REQUIRED_ENV) {
+  const value = process.env[key] || process.env[`NEXT_PUBLIC_${key}`];
+  if (!value) {
+    console.error(`ERROR: Missing required env var: ${key} (or NEXT_PUBLIC_${key})`);
+    process.exit(1);
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 
