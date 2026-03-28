@@ -47,7 +47,7 @@ export async function triageFindings(
   try {
     const client = getClient();
     const response = await (client as any).ai.chat.completions.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'anthropic/claude-sonnet-4-20250514',
       messages: [
         { role: 'system', content: triagePrompt },
         {
@@ -142,7 +142,7 @@ export async function generateFixes(
         : sourceCode;
 
       const response = await (client as any).ai.chat.completions.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'anthropic/claude-sonnet-4-20250514',
         messages: [
           { role: 'system', content: fixPrompt },
           {
