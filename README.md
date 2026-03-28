@@ -1,37 +1,23 @@
-# SecForge - Autonomous Security Scanner
+# **SecForge**
 
-An autonomous security scanning platform: paste a GitHub repo URL, the system clones it, runs SAST (Semgrep), DAST (OWASP ZAP + Nuclei), and SCA (Trivy + npm audit) scans, boots the target app locally in Docker for DAST, uses AI to triage findings and generate fixes, and streams results to a real-time dashboard. Built on InsForge BaaS.
-
-## Architecture
-
-```
-src/                 -- Next.js frontend (pages, components, styles)
-packages/scanner/    -- Node.js scan orchestrator (SAST/DAST/SCA pipeline)
-packages/backend/    -- InsForge serverless functions + SQL schema
-packages/shared/     -- Shared TypeScript types (the integration contract)
-```
-
-## InsForge Backend
-
-- URL: `https://66wjtrxb.us-west.insforge.app`
-- Project ID: `8e2b49ec-353d-4365-bc07-f061696a90cf`
-- SDK: `@insforge/sdk@latest`
+Autonomous AI-powered security scanner for GitHub repositories. Performs SAST, DAST, and SCA analysis with AI-generated vulnerability fixes.
 
 ## Features
 
-- **Frontend**: Next.js 15 + TypeScript + Tailwind CSS 3.4
-- **Authentication**: Email/password + OAuth (GitHub, Google)
-- **Database**: PostgreSQL with PostgREST API
-- **Storage**: File upload/download for scan reports
-- **AI**: Chat completions for vulnerability analysis and patch generation
-- **Realtime**: WebSocket pub/sub for live scan updates
-- **Scanner Pipeline**:
-  - SAST: Semgrep static analysis
-  - DAST: OWASP ZAP + Nuclei dynamic testing
-  - SCA: Trivy + npm audit dependency scanning
-  - AI Analyzer: Automatic triage and fix generation
+- 🔍 **SAST** - Static analysis with Semgrep
+- 🌐 **DAST** - Dynamic testing with OWASP ZAP and Nuclei
+- 📦 **SCA** - Dependency scanning with Trivy and npm audit
+- 🤖 **AI Analysis** - Automatic triage and fix generation
+- 📊 **Real-time Dashboard** - Live scan progress and findings
+- 🔐 **Secure Auth** - Email verification with OTP
 
 ## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- Docker (for scanner tools)
+- InsForge account
 
 ### Install Dependencies
 
@@ -41,124 +27,127 @@ npm install
 
 ### Environment Setup
 
-Create a `.env.local` file in the root directory:
+Create a `.env` file in the root directory:
 
 ```env
-NEXT_PUBLIC_INSFORGE_BASE_URL=https://66wjtrxb.us-west.insforge.app
-NEXT_PUBLIC_INSFORGE_ANON_KEY=your_anon_key_here
+NEXT_PUBLIC_INSFORGE_BASE_URL=https://your-app.insforge.app
+NEXT_PUBLIC_INSFORGE_ANON_KEY=your-anon-key
 ```
 
-### Start Development Server
+### Database Setup
+
+Run the database setup script to create tables:
 
 ```bash
+cd packages/backend
+npm install
+npm run setup-db
+```
+
+### Start Development Servers
+
+**Terminal 1: Frontend**
+```bash
 npm run dev
+```
+
+**Terminal 2: Scanner Pipeline Server**
+```bash
+cd packages/scanner
+npm install
+INSFORGE_BASE_URL=https://your-app.insforge.app \
+INSFORGE_ANON_KEY=your-anon-key \
+npm run dev:server
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Available Scripts
 
-- `npm run dev` - Start development server
+- `npm run dev` - Start Next.js development server
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
+
+### Scanner Package
+
+- `npm run dev:server` - Start scanner HTTP server (port 4000)
+- `npm run build` - Build scanner package
+
+### Backend Package
+
+- `npm run setup-db` - Create database tables
 
 ## Project Structure
 
 ```
 src/
-├── app/
-│   ├── layout.tsx          # Root layout with InsForge provider
-│   ├── page.tsx            # Home (redirects to /dashboard)
-│   ├── dashboard/page.tsx  # Main dashboard with scan list
-│   ├── scan/new/page.tsx   # New scan form
-│   ├── scan/[id]/page.tsx  # Scan detail with findings
-│   ├── sign-in/page.tsx    # Authentication
-│   └── sign-up/page.tsx    # Registration
-├── components/
-│   ├── InsForgeProvider.tsx   # Auth context
-│   ├── FindingsTable.tsx      # Findings data table
-│   ├── SeverityChart.tsx      # Severity breakdown chart
-│   ├── SeverityBadge.tsx      # Severity indicator
-│   ├── DiffViewer.tsx         # Code diff for AI fixes
-│   └── FindingDetail.tsx      # Finding detail modal
-├── lib/
-│   ├── insforge.ts            # SDK client
-│   └── useScanRealtime.ts     # Realtime subscription hook
-└── hooks/
-    └── useRealtimeScan.ts     # Alternative realtime hook
+├── app/                    # Next.js app router
+│   ├── sign-in/           # Authentication pages
+│   ├── sign-up/
+│   ├── dashboard/         # Main dashboard
+│   └── scan/              # Scan details and new scan
+├── components/            # React components
+│   ├── FindingsTable.tsx
+│   ├── SeverityBadge.tsx
+│   └── SeverityChart.tsx
+└── lib/
+    └── insforge.ts        # InsForge SDK client
 
 packages/
-├── scanner/
-│   └── src/
-│       ├── index.ts           # Pipeline exports
-│       ├── orchestrator.ts    # Main scan orchestrator
-│       ├── server.ts          # HTTP server for scan endpoint
-│       ├── clone.ts           # Git repo cloning
-│       ├── detect.ts          # Tech stack detection
-│       ├── boot.ts            # Docker boot for DAST
-│       ├── cleanup.ts         # Cleanup after scans
-│       ├── ai-analyzer.ts     # AI analysis
-│       ├── reporter.ts        # Report generation
-│       └── scanners/
-│           ├── semgrep.ts     # SAST scanner
-│           ├── zap.ts         # DAST scanner (OWASP ZAP)
-│           ├── trivy.ts       # SCA scanner
-│           ├── npm-audit.ts   # NPM audit scanner
-│           └── nuclei.ts      # Nuclei scanner
-├── backend/
-│   └── functions/
-│       └── start-scan/
-│           └── index.ts       # Edge function to queue scans
-└── shared/
-    ├── types/
-    │   ├── scan.ts            # ScanJob, ScanStatus
-    │   ├── finding.ts         # ScanFinding, SeverityLevel
-    │   ├── fix.ts             # Fix, ScanSummary
-    │   ├── realtime.ts        # RealtimeEvent payloads
-    │   └── index.ts           # Type exports
-    └── constants.ts           # Severity colors, scan steps
+├── scanner/               # Security scanner pipeline
+│   ├── src/
+│   │   ├── server.ts      # HTTP server (port 4000)
+│   │   ├── orchestrator.ts # Pipeline orchestration
+│   │   ├── scanners/      # Scanner wrappers
+│   │   │   ├── semgrep.ts
+│   │   │   ├── zap.ts
+│   │   │   ├── nuclei.ts
+│   │   │   ├── trivy.ts
+│   │   │   └── npm-audit.ts
+│   │   ├── ai-analyzer.ts
+│   │   └── reporter.ts
+│   └── package.json
+├── backend/               # InsForge serverless functions
+│   ├── functions/
+│   │   └── start-scan/    # Edge function to start scans
+│   └── scripts/
+│       └── setup-db.ts    # Database setup script
+└── shared/                # Shared types
 ```
 
-## Team
+## How It Works
 
-- **Jack**: Claude Code + Codex
-- **Zuriahn**: Claude Code
-- **Anderson**: Codex
+1. **User initiates scan** from the web UI
+2. **Start-scan function** creates a scan job record
+3. **Scanner HTTP server** receives the job and starts the pipeline
+4. **Pipeline stages**:
+   - Clone repository
+   - Detect framework
+   - Run SAST (Semgrep)
+   - Boot application
+   - Run DAST (ZAP + Nuclei)
+   - Run SCA (Trivy + npm audit)
+   - AI analysis and fix generation
+   - Store findings in database
+5. **Real-time updates** via WebSockets show progress
+6. **Dashboard displays** findings with severity and AI fixes
 
 ## Known Issues
 
-### Critical
+- **Missing OTP Code Input** - Email verification UI needs OTP input (Issue #57, fix in progress)
+- **Dashboard Loading State** - Initial dashboard load shows empty state briefly
+- **Database Schema Mismatch** - Frontend data model alignment in progress (Issue #35, PR pending)
 
-- **Backend Not Functional**: The backend infrastructure is not fully operational. The `start-scan` edge function exists but does not properly trigger the scanner pipeline. The scanner HTTP server is implemented but not receiving requests.
+## Tech Stack
 
-- **Database Schema Mismatch**: Frontend queries `scan_jobs` table but the actual table may be named `scans`. Need to align frontend data model with backend schema (Issue #35).
-
-### Authentication
-
-- **Missing OTP Code Input**: After requesting a one-time code via email (Gmail), there is no input field on the page to enter the verification code. The UI only shows email/password fields without the OTP verification step.
-
-### UI/UX
-
-- **Dashboard Loading State**: Dashboard shows infinite spinner when auth state is loading. May need better error handling for unauthenticated users.
-
-### Backend Integration
-
-- **Scanner Pipeline Not Triggered**: The `start-scan` edge function creates a scan record in the database but does not actually invoke the scanner HTTP server at `POST /scan`.
-
-- **Missing DB Setup Script**: No automated script to execute the SQL schema and create required tables (`scan_jobs`, `findings`, `patches`, `scan_summaries`).
-
-## Coordination
-
-This project uses GitHub Issues as the task queue and PRs as the delivery mechanism.
-
-- **Branch naming**: `<person>/<issue-number>-<short-desc>` (e.g., `zuriahn/3-scan-form`)
-- **Commit message**: `feat: <description> (closes #<number>)`
-- **Never push directly to `main`** - All work goes through PRs
+- **Frontend**: Next.js 15, TypeScript, Tailwind CSS
+- **Backend**: InsForge (PostgreSQL, Auth, Realtime)
+- **Scanner**: Node.js, Express, Docker
+- **AI**: OpenAI-compatible API via InsForge
 
 ## Learn More
 
+- [InsForge Documentation](https://insforge.dev/docs)
 - [Next.js Documentation](https://nextjs.org/docs)
 - [Tailwind CSS Documentation](https://tailwindcss.com)
-- [TypeScript Documentation](https://www.typescriptlang.org)
-- [InsForge Documentation](https://insforge.dev/docs)
