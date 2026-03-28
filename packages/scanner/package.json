@@ -1,0 +1,19 @@
+{
+  "name": "@bounty/scanner",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@insforge/sdk": "latest"
+  },
+  "devDependencies": {
+    "tsx": "^4.10.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.12.0"
+  }
+}

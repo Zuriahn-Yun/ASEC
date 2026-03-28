@@ -43,3 +43,27 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf
+
+# MCP config (contains API keys)
+.mcp.json
+
+# OS
+Thumbs.db
+
+# Scanner temp files
+/tmp-scan-*
+

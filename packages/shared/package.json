@@ -1,0 +1,9 @@
+{
+  "name": "@bounty/shared",
+  "version": "0.0.1",
+  "private": true,
+  "main": "types/index.ts",
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
