@@ -121,7 +121,7 @@ export default function ScanDetail() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `secforge-report-${scan.repo_name}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `asec-report-${scan.repo_name}-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     setExporting(false);
