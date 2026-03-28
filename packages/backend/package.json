@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "setup-db": "tsx scripts/setup-db.ts"
+    "setup-db": "tsx scripts/setup-db.ts",
+    "deploy-functions": "tsx scripts/deploy-functions.ts"
   },
   "dependencies": {
     "@insforge/sdk": "latest"
