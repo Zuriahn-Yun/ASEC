@@ -1,52 +1,6 @@
 import { createClient } from '@insforge/sdk';
-
-// Type definitions (mirrored from shared/types)
-type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
-type ScannerType = 'semgrep' | 'zap' | 'nuclei' | 'trivy' | 'npm_audit';
-type ScanCategory = 'sast' | 'dast' | 'sca';
-
-interface ScanFinding {
-  id: string;
-  scan_id: string;
-  scanner: ScannerType;
-  scan_type: ScanCategory;
-  severity: SeverityLevel;
-  title: string;
-  description?: string;
-  file_path?: string;
-  line_start?: number;
-  line_end?: number;
-  cwe_id?: string;
-  rule_id?: string;
-  raw_sarif?: Record<string, unknown>;
-  created_at: string;
-}
-
-interface Fix {
-  id: string;
-  finding_id: string;
-  scan_id: string;
-  explanation: string;
-  original_code?: string;
-  fixed_code?: string;
-  diff_patch?: string;
-  confidence: 'high' | 'medium' | 'low';
-  created_at: string;
-}
-
-interface ScanSummary {
-  scan_id: string;
-  total_findings: number;
-  critical_count: number;
-  high_count: number;
-  medium_count: number;
-  low_count: number;
-  info_count: number;
-  sast_count: number;
-  dast_count: number;
-  sca_count: number;
-  fixes_generated: number;
-}
+import type { ScanFinding, SeverityLevel, ScannerType, ScanCategory } from '../../shared/types/finding.js';
+import type { Fix, ScanSummary } from '../../shared/types/fix.js';
 
 // Initialize InsForge client
 const insforge = createClient({
