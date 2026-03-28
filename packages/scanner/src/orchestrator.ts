@@ -43,8 +43,23 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
     await updateScanStatus(job.id, 'detecting');
     const detection = await detectFramework(repoDir);
 
+    // Track scanner results for summary
+    const scannerResults: {
+      semgrep: number | null;
+      zap: number | null;
+      nuclei: number | null;
+      trivy: number | null;
+      npmAudit: number | null;
+    } = {
+      semgrep: null,
+      zap: null,
+      nuclei: null,
+      trivy: null,
+      npmAudit: null,
+    };
+
     // 3. SAST (runs on source — no container needed)
-    await runSast(job.id, repoDir);
+    scannerResults.semgrep = await runSast(job.id, repoDir);
 
     // 4. Boot app for DAST (best-effort — failure is non-fatal)
     let dastEnabled = false;
@@ -57,7 +72,9 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
       dastEnabled = true;
 
       // 5. DAST
-      await runDast(job.id, appUrl);
+      const dastResults = await runDast(job.id, appUrl);
+      scannerResults.zap = dastResults.zap;
+      scannerResults.nuclei = dastResults.nuclei;
     } catch {
       // Boot failed — skip DAST, continue with SCA + AI
     } finally {
@@ -70,12 +87,17 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
     void dastEnabled; // acknowledged: dastEnabled used implicitly via runDast call above
 
     // 6. SCA
-    await runSca(job.id, repoDir);
+    const scaResults = await runSca(job.id, repoDir);
+    scannerResults.trivy = scaResults.trivy;
+    scannerResults.npmAudit = scaResults.npmAudit;
 
     // 7. AI analysis + fix generation
     await runAiAnalysis(job.id, repoDir);
 
-    // 8. Report / finalize
+    // 8. Log summary
+    logScannerSummary(scannerResults);
+
+    // 9. Report / finalize
     await finalizeReport(job.id);
   } catch (error) {
     // Update scan status to failed
@@ -94,7 +116,7 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
 // Real implementations — wired to scanner wrappers, AI analyzer, and reporter
 // ---------------------------------------------------------------------------
 
-async function runSast(scanId: string, repoDir: string): Promise<void> {
+async function runSast(scanId: string, repoDir: string): Promise<number> {
   await updateScanStatus(scanId, 'scanning_sast');
   
   const findings = await runSemgrep(repoDir);
@@ -103,9 +125,11 @@ async function runSast(scanId: string, repoDir: string): Promise<void> {
   const findingsWithScanId = findings.map(f => ({ ...f, scan_id: scanId }));
   
   await insertFindings(scanId, findingsWithScanId);
+  
+  return findings.length;
 }
 
-async function runDast(scanId: string, appUrl: string): Promise<void> {
+async function runDast(scanId: string, appUrl: string): Promise<{ zap: number; nuclei: number }> {
   await updateScanStatus(scanId, 'scanning_dast');
   
   // Run ZAP and Nuclei in parallel
@@ -129,9 +153,11 @@ async function runDast(scanId: string, appUrl: string): Promise<void> {
   const allFindings = [...zapFindings, ...nucleiFindings].map(f => ({ ...f, scan_id: scanId }));
   
   await insertFindings(scanId, allFindings);
+  
+  return { zap: zapFindings.length, nuclei: nucleiFindings.length };
 }
 
-async function runSca(scanId: string, repoDir: string): Promise<void> {
+async function runSca(scanId: string, repoDir: string): Promise<{ trivy: number; npmAudit: number }> {
   await updateScanStatus(scanId, 'scanning_sca');
   
   // Run Trivy and npm audit in parallel
@@ -155,6 +181,8 @@ async function runSca(scanId: string, repoDir: string): Promise<void> {
   const allFindings = [...trivyFindings, ...npmFindings];
   
   await insertFindings(scanId, allFindings);
+  
+  return { trivy: trivyFindings.length, npmAudit: npmFindings.length };
 }
 
 async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
@@ -197,4 +225,37 @@ async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
 async function finalizeReport(scanId: string): Promise<void> {
   await computeSummary(scanId);
   await updateScanStatus(scanId, 'complete');
+}
+
+interface ScannerResults {
+  semgrep: number | null;
+  zap: number | null;
+  nuclei: number | null;
+  trivy: number | null;
+  npmAudit: number | null;
+}
+
+function logScannerSummary(results: ScannerResults): void {
+  const totalCount = 
+    (results.semgrep ?? 0) + 
+    (results.zap ?? 0) + 
+    (results.nuclei ?? 0) + 
+    (results.trivy ?? 0) + 
+    (results.npmAudit ?? 0);
+  
+  const skipped: string[] = [];
+  if (results.semgrep === null) skipped.push('Semgrep');
+  if (results.zap === null) skipped.push('ZAP');
+  if (results.nuclei === null) skipped.push('Nuclei');
+  if (results.trivy === null) skipped.push('Trivy');
+  if (results.npmAudit === null) skipped.push('npm audit');
+  
+  console.log('=== Scan Pipeline Summary ===');
+  console.log(`  SAST  - Semgrep:   ${results.semgrep ?? 'skipped'} findings`);
+  console.log(`  DAST  - ZAP:       ${results.zap ?? 'skipped'} findings`);
+  console.log(`  DAST  - Nuclei:    ${results.nuclei ?? 'skipped'} findings`);
+  console.log(`  SCA   - Trivy:     ${results.trivy ?? 'skipped'} findings`);
+  console.log(`  SCA   - npm audit: ${results.npmAudit ?? 'skipped'} findings`);
+  console.log(`  Total: ${totalCount} findings`);
+  if (skipped.length) console.log(`  Skipped: ${skipped.join(', ')}`);
 }
