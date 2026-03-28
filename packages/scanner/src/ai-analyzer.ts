@@ -3,7 +3,6 @@ import { join } from 'path';
 import { createClient } from '@insforge/sdk';
 import type { ScanFinding, Fix, SeverityLevel } from '../../shared/types';
 
-type FindingWithoutMeta = Omit<ScanFinding, 'id' | 'created_at'>;
 type FixWithoutMeta = Omit<Fix, 'id' | 'created_at'>;
 
 // Load prompt templates
@@ -38,11 +37,11 @@ interface TriageResult {
  * Limits to top 50 findings to control token usage.
  */
 export async function triageFindings(
-  findings: FindingWithoutMeta[]
-): Promise<FindingWithoutMeta[]> {
+  findings: ScanFinding[]
+): Promise<ScanFinding[]> {
   if (findings.length === 0) return findings;
 
-  const toTriage = findings.slice(0, 50);
+  const toTriage: ScanFinding[] = findings.slice(0, 50);
   const triagePrompt = loadPrompt('triage');
 
   try {
@@ -78,7 +77,7 @@ export async function triageFindings(
     const triageResults: TriageResult[] = JSON.parse(content);
 
     // Apply triage results: filter duplicates, update severity
-    const deduped: FindingWithoutMeta[] = [];
+    const deduped: ScanFinding[] = [];
     for (const result of triageResults) {
       if (result.is_duplicate) continue;
       if (result.index >= toTriage.length) continue;
@@ -110,7 +109,7 @@ interface FixAIResponse {
  * Limits to 20 findings to control token usage and latency.
  */
 export async function generateFixes(
-  findings: FindingWithoutMeta[],
+  findings: ScanFinding[],
   repoDir: string,
   scanId: string
 ): Promise<FixWithoutMeta[]> {
@@ -169,7 +168,7 @@ export async function generateFixes(
       const aiResult: FixAIResponse = JSON.parse(content);
 
       fixes.push({
-        finding_id: '', // Will be set after finding is inserted in DB
+        finding_id: finding.id,
         scan_id: scanId,
         explanation: aiResult.explanation,
         original_code: aiResult.original_code,
