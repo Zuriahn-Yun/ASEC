@@ -17,12 +17,8 @@ export function Navbar() {
             <span className="text-xl font-bold">ASEC</span>
           </Link>
 
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center justify-center flex-1">
-            <Link href="https://github.com/Zuriahn-Yun/ASEC#readme" target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              README
-            </Link>
-          </div>
+          {/* Navigation Links - Empty for now */}
+          <div className="hidden md:flex items-center justify-center flex-1" />
 
           {/* Auth Buttons */}
           <div className="flex items-center gap-4">
