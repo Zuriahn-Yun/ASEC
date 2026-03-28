@@ -2,16 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@insforge/sdk';
 
 const INSFORGE_BASE_URL = process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
-const INSFORGE_ANON_KEY = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
+const INSFORGE_API_KEY = process.env.INSFORGE_API_KEY || '';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { repo_url, branch = 'main', scan_types } = body;
+    const { repo_url, branch = 'main', scan_types, user_id } = body;
 
-    // Validate repo_url
+    // Validate inputs
     if (!repo_url) {
       return NextResponse.json({ error: 'repo_url is required' }, { status: 400 });
+    }
+    if (!user_id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     try {
       const parsed = new URL(repo_url);
@@ -20,28 +23,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid GitHub URL' }, { status: 400 });
     }
 
-    // Forward browser cookies so InsForge can authenticate via httpOnly session cookies
-    const cookieHeader = req.headers.get('cookie') || '';
+    // Use service key for server-side DB access (avoids unreliable cookie-forwarding auth)
     const insforge = createClient({
       baseUrl: INSFORGE_BASE_URL,
-      anonKey: INSFORGE_ANON_KEY,
-      headers: { Cookie: cookieHeader },
+      anonKey: INSFORGE_API_KEY,
     });
-
-    // Get authenticated user
-    const { data: userData, error: authError } = await insforge.auth.getCurrentUser();
-    if (authError || !userData?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
 
     // Extract repo name from URL
     const repoName = new URL(repo_url).pathname.split('/').filter(Boolean)[1]?.replace('.git', '') || 'unknown';
 
-    // Insert scan job directly via SDK (bypasses dead edge function)
+    // Insert scan job directly via SDK
     const { data: scanData, error: dbError } = await insforge.database
       .from('scan_jobs')
       .insert([{
-        user_id: userData.user.id,
+        user_id,
         repo_url,
         repo_name: repoName,
         status: 'queued',
