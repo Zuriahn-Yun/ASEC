@@ -14,14 +14,31 @@ function loadPrompt(name: string): string {
   return readFileSync(join(PROMPTS_DIR, `${name}.md`), 'utf-8');
 }
 
-// InsForge client -- initialized lazily
-let _client: ReturnType<typeof createClient> | null = null;
+/** Typed shape of the InsForge AI chat completions sub-client. */
+interface InsForgeAIClient {
+  ai: {
+    chat: {
+      completions: {
+        create(params: {
+          model: string;
+          messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+        }): Promise<{
+          choices?: Array<{ message?: { content?: string } }>;
+        }>;
+      };
+    };
+  };
+}
 
-function getClient(): ReturnType<typeof createClient> {
+// InsForge client -- initialized lazily
+let _client: (ReturnType<typeof createClient> & InsForgeAIClient) | null = null;
+
+function getClient(): ReturnType<typeof createClient> & InsForgeAIClient {
   if (!_client) {
-    const baseUrl = process.env.INSFORGE_URL || process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
+    // Canonical env var: INSFORGE_BASE_URL (server-side) or NEXT_PUBLIC_INSFORGE_BASE_URL (client-side)
+    const baseUrl = process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
     const anonKey = process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
-    _client = createClient({ baseUrl, anonKey });
+    _client = createClient({ baseUrl, anonKey }) as ReturnType<typeof createClient> & InsForgeAIClient;
   }
   return _client;
 }
@@ -48,7 +65,7 @@ export async function triageFindings(
 
   try {
     const client = getClient();
-    const response = await (client as any).ai.chat.completions.create({
+    const response = await client.ai.chat.completions.create({
       model: 'anthropic/claude-sonnet-4-20250514',
       messages: [
         { role: 'system', content: triagePrompt },
@@ -147,7 +164,7 @@ export async function generateFixes(
         ? sourceCode.slice(0, maxChars) + '\n// ... (truncated)'
         : sourceCode;
 
-      const response = await (client as any).ai.chat.completions.create({
+      const response = await client.ai.chat.completions.create({
         model: 'anthropic/claude-sonnet-4-20250514',
         messages: [
           { role: 'system', content: fixPrompt },
@@ -210,7 +227,7 @@ export async function generateExplanations(
     const batch = findings.slice(i, i + BATCH_SIZE);
 
     try {
-      const response = await (client as any).ai.chat.completions.create({
+      const response = await client.ai.chat.completions.create({
         model: 'anthropic/claude-sonnet-4-20250514',
         messages: [
           {

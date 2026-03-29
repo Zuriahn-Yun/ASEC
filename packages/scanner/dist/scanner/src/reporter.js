@@ -20,8 +20,9 @@ export async function updateScanStatus(scanId, status, error) {
         .update(updateData)
         .eq('id', scanId);
     if (dbError) {
-        console.error('Failed to update scan status:', dbError);
-        throw new Error(`Failed to update scan status: ${dbError.message}`);
+        // Log but do NOT throw — status updates are progress indicators, not critical
+        console.error(`[REPORTER] Failed to update status to "${status}":`, dbError);
+        return;
     }
     await publishRealtime(scanId, 'status_changed', {
         scan_id: scanId,
@@ -43,12 +44,12 @@ export async function updateScanMetadata(scanId, metadata) {
         .update(updateData)
         .eq('id', scanId);
     if (error) {
-        console.warn('Failed to update scan metadata:', error);
+        console.warn('[REPORTER] Failed to update scan metadata:', error);
     }
 }
 export async function insertFindings(scanId, findings) {
     if (findings.length === 0) {
-        console.log('No findings to insert');
+        console.log('[REPORTER] No findings to insert');
         return;
     }
     const findingsWithScanId = findings.map((finding) => ({
@@ -59,10 +60,10 @@ export async function insertFindings(scanId, findings) {
         .from('findings')
         .insert(findingsWithScanId);
     if (dbError) {
-        console.error('Failed to insert findings:', dbError);
+        console.error('[REPORTER] Failed to insert findings:', dbError);
         throw new Error(`Failed to insert findings: ${dbError.message}`);
     }
-    console.log(`Inserted ${findings.length} findings`);
+    console.log(`[REPORTER] Inserted ${findings.length} findings`);
     await publishRealtime(scanId, 'finding_batch', {
         scan_id: scanId,
         count: findings.length,
@@ -82,14 +83,14 @@ export async function updateFindingDescriptions(scanId, findings) {
             .eq('id', finding.id)
             .eq('scan_id', scanId);
         if (dbError) {
-            console.warn(`Failed to update description for finding ${finding.id}:`, dbError);
+            console.warn(`[REPORTER] Failed to update description for finding ${finding.id}:`, dbError);
         }
     }
-    console.log(`Updated descriptions for ${findings.length} findings`);
+    console.log(`[REPORTER] Updated descriptions for ${findings.length} findings`);
 }
 export async function insertFixes(scanId, fixes) {
     if (fixes.length === 0) {
-        console.log('No fixes to insert');
+        console.log('[REPORTER] No fixes to insert');
         return;
     }
     const fixesWithScanId = fixes.map((fix) => ({
@@ -100,10 +101,10 @@ export async function insertFixes(scanId, fixes) {
         .from('fixes')
         .insert(fixesWithScanId);
     if (dbError) {
-        console.error('Failed to insert fixes:', dbError);
+        console.error('[REPORTER] Failed to insert fixes:', dbError);
         throw new Error(`Failed to insert fixes: ${dbError.message}`);
     }
-    console.log(`Inserted ${fixes.length} fixes`);
+    console.log(`[REPORTER] Inserted ${fixes.length} fixes`);
     for (const fix of fixes) {
         await publishRealtime(scanId, 'fix_generated', {
             scan_id: scanId,
@@ -119,11 +120,11 @@ export async function computeSummary(scanId) {
         .select('severity, scan_type')
         .eq('scan_id', scanId);
     if (fetchError) {
-        console.error('Failed to fetch findings for summary:', fetchError);
-        throw new Error(`Failed to fetch findings: ${fetchError.message}`);
+        console.error('[REPORTER] Failed to fetch findings for summary:', fetchError);
+        return; // Non-fatal: don't crash finalization
     }
     if (!findings) {
-        console.log('No findings found for summary');
+        console.log('[REPORTER] No findings found for summary');
         return;
     }
     const severityCounts = {
@@ -151,8 +152,8 @@ export async function computeSummary(scanId) {
         .select('id')
         .eq('scan_id', scanId);
     if (fixError) {
-        console.error('Failed to fetch fixes for summary:', fixError);
-        throw new Error(`Failed to fetch fixes: ${fixError.message}`);
+        console.error('[REPORTER] Failed to fetch fixes for summary:', fixError);
+        // Continue with fixes_generated = 0 instead of crashing
     }
     const summary = {
         total_findings: findings.length,
@@ -173,10 +174,10 @@ export async function computeSummary(scanId) {
         ...summary,
     });
     if (upsertError) {
-        console.error('Failed to upsert scan summary:', upsertError);
-        throw new Error(`Failed to upsert scan summary: ${upsertError.message}`);
+        console.error('[REPORTER] Failed to upsert scan summary:', upsertError);
+        return; // Non-fatal
     }
-    console.log('Scan summary computed and saved:', summary);
+    console.log('[REPORTER] Scan summary saved:', summary);
 }
 async function publishRealtime(scanId, event, payload) {
     if (realtimeDisabled) {
@@ -190,9 +191,9 @@ async function publishRealtime(scanId, event, payload) {
     catch (realtimeError) {
         if (realtimeError instanceof Error && realtimeError.message.includes('Invalid token')) {
             realtimeDisabled = true;
-            console.warn('Realtime disabled for this scanner process because the backend rejected the token.');
+            console.warn('[REPORTER] Realtime disabled for this scanner process because the backend rejected the token.');
             return;
         }
-        console.warn('Realtime broadcast failed (non-critical):', realtimeError);
+        console.warn('[REPORTER] Realtime broadcast failed (non-critical):', realtimeError);
     }
 }

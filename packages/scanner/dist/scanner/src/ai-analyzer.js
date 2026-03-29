@@ -12,7 +12,8 @@ function loadPrompt(name) {
 let _client = null;
 function getClient() {
     if (!_client) {
-        const baseUrl = process.env.INSFORGE_URL || process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
+        // Canonical env var: INSFORGE_BASE_URL (server-side) or NEXT_PUBLIC_INSFORGE_BASE_URL (client-side)
+        const baseUrl = process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
         const anonKey = process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
         _client = createClient({ baseUrl, anonKey });
     }

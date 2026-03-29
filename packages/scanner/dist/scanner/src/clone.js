@@ -16,6 +16,9 @@ export async function cloneRepo(repoUrl, branch) {
         args.push('--branch', branch);
     }
     args.push(repoUrl, repoDir);
-    await execFileAsync('git', args, { shell: USE_SHELL });
+    console.log(`[CLONE] Cloning ${repoUrl} (branch: ${branch || 'default'})...`);
+    const start = Date.now();
+    await execFileAsync('git', args, { shell: USE_SHELL, timeout: 120_000 });
+    console.log(`[CLONE] Cloned in ${((Date.now() - start) / 1000).toFixed(1)}s -> ${repoDir}`);
     return repoDir;
 }

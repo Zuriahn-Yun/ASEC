@@ -1,9 +1,8 @@
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 export async function runZap(targetUrl) {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zap-'));
@@ -17,7 +16,8 @@ export async function runZap(targetUrl) {
             return [];
         }
         const dockerTargetUrl = getDockerReachableUrl(targetUrl);
-        console.log(`Starting ZAP scan against ${dockerTargetUrl}...`);
+        console.log(`[DAST] Starting ZAP baseline scan against ${dockerTargetUrl}...`);
+        const start = Date.now();
         try {
             await execFileAsync('docker', [
                 'run',
@@ -30,7 +30,9 @@ export async function runZap(targetUrl) {
                 '-t',
                 dockerTargetUrl,
                 '-J',
-                '/zap/wrk/zap-report.json',
+                'zap-report.json',
+                '-m',
+                '5',
             ], {
                 timeout: 10 * 60 * 1000,
                 maxBuffer: 50 * 1024 * 1024,
@@ -38,13 +40,13 @@ export async function runZap(targetUrl) {
         }
         catch {
             // ZAP exits non-zero when it finds issues. We still parse the report.
-            console.log('ZAP scan completed with findings or warnings.');
+            console.log(`[DAST] ZAP scan finished in ${((Date.now() - start) / 1000).toFixed(1)}s`);
         }
         try {
             await fs.access(reportPath);
         }
         catch {
-            console.warn('ZAP report was not generated, returning an empty result set.');
+            console.warn('[DAST] ZAP report was not generated, returning empty result set.');
             return [];
         }
         const reportContent = await fs.readFile(reportPath, 'utf-8');
@@ -89,15 +91,15 @@ export async function runZap(targetUrl) {
                 });
             }
         }
-        console.log(`ZAP scan found ${findings.length} issues`);
+        console.log(`[DAST] ZAP found ${findings.length} issues`);
         return findings;
     }
     catch (error) {
         if (error instanceof Error && error.message.includes('timeout')) {
-            console.error('ZAP scan timed out after 10 minutes');
+            console.error('[DAST] ZAP scan timed out after 10 minutes');
             return [];
         }
-        console.error('ZAP scan failed:', error);
+        console.error('[DAST] ZAP scan failed:', error);
         return [];
     }
     finally {

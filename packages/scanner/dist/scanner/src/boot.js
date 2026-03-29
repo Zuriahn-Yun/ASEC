@@ -50,6 +50,7 @@ export async function bootApp(repoDir, detection) {
             const appUrl = `http://127.0.0.1:${port}`;
             const healthy = await fetch(appUrl).then(() => true).catch(() => false);
             if (healthy) {
+                console.log(`[BOOT] App healthy at ${appUrl}`);
                 return { containerId: handle, appUrl };
             }
         }
@@ -75,12 +76,17 @@ export async function stopApp(containerId) {
 }
 async function installNodeDependencies(appDir) {
     if (existsSync(join(appDir, 'node_modules'))) {
+        console.log('[BOOT] node_modules exists, skipping install');
         return;
     }
-    const args = existsSync(join(appDir, 'package-lock.json'))
+    const hasLockfile = existsSync(join(appDir, 'package-lock.json'));
+    const args = hasLockfile
         ? ['ci', '--no-audit', '--no-fund']
         : ['install', '--no-audit', '--no-fund'];
-    await runNpm(args, { cwd: appDir, timeout: 180_000, maxBuffer: 50 * 1024 * 1024 });
+    console.log(`[BOOT] Installing dependencies (npm ${args[0]}) in ${appDir}...`);
+    const start = Date.now();
+    await runNpm(args, { cwd: appDir, timeout: 300_000, maxBuffer: 50 * 1024 * 1024 });
+    console.log(`[BOOT] Dependencies installed in ${((Date.now() - start) / 1000).toFixed(1)}s`);
 }
 function buildStartCommand(detection, port) {
     if (detection.framework === 'nextjs' && detection.startCommand === 'npm run dev') {

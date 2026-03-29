@@ -148,7 +148,12 @@ async function runSastWorkflow(scanId: string, repoDir: string, enabled: boolean
     return null;
   }
 
-  return runSast(scanId, repoDir);
+  try {
+    return await runSast(scanId, repoDir);
+  } catch (error) {
+    console.warn('[SAST] Scan failed, skipping:', error);
+    return null;
+  }
 }
 
 async function runDast(scanId: string, appUrl: string): Promise<{ zap: number; nuclei: number }> {
@@ -238,7 +243,12 @@ async function runScaWorkflow(
     return { trivy: null, npmAudit: null };
   }
 
-  return runSca(scanId, repoDir);
+  try {
+    return await runSca(scanId, repoDir);
+  } catch (error) {
+    console.warn('[SCA] Scan failed, skipping:', error);
+    return { trivy: null, npmAudit: null };
+  }
 }
 
 async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
