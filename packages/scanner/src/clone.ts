@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+const USE_SHELL = process.platform === 'win32';
 
 /**
  * Clones a public GitHub repo into a temporary directory.
@@ -19,7 +20,7 @@ export async function cloneRepo(repoUrl: string, branch?: string): Promise<strin
   }
   args.push(repoUrl, repoDir);
 
-  await execFileAsync('git', args);
+  await execFileAsync('git', args, { shell: USE_SHELL });
 
   return repoDir;
 }

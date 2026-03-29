@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@insforge/sdk';
+import { getScannerUrl } from '@/lib/insforge';
 
 const INSFORGE_BASE_URL = process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '';
 const INSFORGE_ANON_KEY = process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '';
@@ -63,13 +64,13 @@ export async function POST(req: NextRequest) {
     // Insert scan job
     const { data: scanData, error: dbError } = await insforge.database
       .from('scan_jobs')
-      .insert({
+      .insert([{
         user_id: userData.user.id,
         repo_url: body.repo_url,
         repo_name: repoName,
         status: 'queued',
         branch: body.branch || 'main',
-      })
+      }])
       .select('id')
       .single();
 
@@ -79,20 +80,42 @@ export async function POST(req: NextRequest) {
     }
 
     // Trigger scanner pipeline (fire-and-forget)
-    const scannerUrl = process.env.SCANNER_URL || 'http://localhost:4000';
+    const scannerUrl = getScannerUrl();
     try {
-      await fetch(`${scannerUrl}/scan`, {
+      const scannerRes = await fetch(`${scannerUrl}/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scan_id: scanData.id,
           repo_url: body.repo_url,
           branch: body.branch || 'main',
+          scan_types: body.scan_types,
         }),
       });
+
+      if (!scannerRes.ok) {
+        const message = `Scanner trigger failed with status ${scannerRes.status}`;
+        await insforge.database
+          .from('scan_jobs')
+          .update({ status: 'failed', error_message: message })
+          .eq('id', scanData.id);
+
+        return NextResponse.json(
+          { error: 'Scanner service is not ready. Start the scanner server and try again.' },
+          { status: 503 },
+        );
+      }
     } catch (triggerError) {
       console.warn('Failed to trigger scanner:', triggerError);
-      // Non-fatal: scan record exists, pipeline will need manual trigger
+      await insforge.database
+        .from('scan_jobs')
+        .update({ status: 'failed', error_message: 'Scanner service is offline' })
+        .eq('id', scanData.id);
+
+      return NextResponse.json(
+        { error: 'Scanner service is offline. Start the scanner server and try again.' },
+        { status: 503 },
+      );
     }
 
     return NextResponse.json({ scan_id: scanData.id }, { status: 200 });

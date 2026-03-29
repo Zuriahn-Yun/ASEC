@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { insforge } from '@/lib/insforge';
+import { insforge, setAccessToken } from '@/lib/insforge';
 import { Shield, Mail, Lock, Github, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -30,6 +30,9 @@ export default function SignIn() {
     }
 
     if (data) {
+      if (data.accessToken) {
+        setAccessToken(data.accessToken);
+      }
       router.push('/dashboard');
       router.refresh();
     }

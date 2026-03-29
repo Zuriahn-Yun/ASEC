@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { insforge } from '@/lib/insforge';
+import { insforge, clearAccessToken, hasStoredAccessToken } from '@/lib/insforge';
 
 interface User {
   id: string;
@@ -26,16 +26,52 @@ export function InsForgeProvider({ children }: { children: ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchUser = async () => {
-      const { data } = await insforge.auth.getCurrentUser();
-      setUser(data?.user as User | null);
-      setIsLoaded(true);
+      if (!hasStoredAccessToken()) {
+        if (!cancelled) {
+          setUser(null);
+          setIsLoaded(true);
+        }
+        return;
+      }
+
+      try {
+        const { data, error } = await insforge.auth.getCurrentUser();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          clearAccessToken();
+          setUser(null);
+        } else {
+          setUser(data?.user as User | null);
+        }
+      } catch {
+        if (!cancelled) {
+          clearAccessToken();
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true);
+        }
+      }
     };
+
     fetchUser();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const signOut = async () => {
     await insforge.auth.signOut();
+    clearAccessToken();
     setUser(null);
   };
 

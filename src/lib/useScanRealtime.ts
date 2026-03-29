@@ -10,20 +10,13 @@ interface ScanRealtimeCallbacks {
 }
 
 /**
- * Subscribes to InsForge Realtime events for a scan and calls the provided
- * callbacks as events arrive. Cleans up the subscription on unmount.
- *
- * Channel: `scan:<scanId>`
- * Events published by packages/scanner/src/reporter.ts:
- *   - 'status_changed' → { scan_id, status, error?, timestamp }
- *   - 'finding_batch'  → { scan_id, count, timestamp }
- *   - 'fix_generated'  → { scan_id, finding_id, confidence, timestamp }
+ * Subscribes to InsForge realtime events for a scan and removes listeners
+ * cleanly on unmount so revisiting a scan does not duplicate callbacks.
  */
 export function useScanRealtime(
   scanId: string,
   callbacks: ScanRealtimeCallbacks,
 ): void {
-  // Stable refs so the effect doesn't re-run when callbacks change identity
   const { onStatusChange, onFindingBatch, onFixGenerated } = callbacks;
 
   useEffect(() => {
@@ -32,33 +25,43 @@ export function useScanRealtime(
     const channel = `scan:${scanId}`;
     let active = true;
 
+    const handleStatusChanged = (message: { payload?: { status?: string; error?: string } }) => {
+      if (!active || !message.payload?.status) {
+        return;
+      }
+
+      onStatusChange(message.payload.status, message.payload.error);
+    };
+
+    const handleFindingBatch = (message: { payload?: { count?: number } }) => {
+      if (!active || typeof message.payload?.count !== 'number') {
+        return;
+      }
+
+      onFindingBatch(message.payload.count);
+    };
+
+    const handleFixGenerated = (message: { payload?: { finding_id?: string } }) => {
+      if (!active || !message.payload?.finding_id) {
+        return;
+      }
+
+      onFixGenerated(message.payload.finding_id);
+    };
+
     const setup = async () => {
       try {
         await insforge.realtime.connect();
         if (!active) return;
 
-        await insforge.realtime.subscribe(channel);
-        if (!active) return;
+        const subscription = await insforge.realtime.subscribe(channel);
+        if (!active || !subscription.ok) return;
 
-        insforge.realtime.on('status_changed', (msg) => {
-          if (!active) return;
-          const p = (msg as { payload?: { status?: string; error?: string } }).payload;
-          if (p?.status) onStatusChange(p.status, p.error);
-        });
-
-        insforge.realtime.on('finding_batch', (msg) => {
-          if (!active) return;
-          const p = (msg as { payload?: { count?: number } }).payload;
-          if (typeof p?.count === 'number') onFindingBatch(p.count);
-        });
-
-        insforge.realtime.on('fix_generated', (msg) => {
-          if (!active) return;
-          const p = (msg as { payload?: { finding_id?: string } }).payload;
-          if (p?.finding_id) onFixGenerated(p.finding_id);
-        });
+        insforge.realtime.on('status_changed', handleStatusChanged);
+        insforge.realtime.on('finding_batch', handleFindingBatch);
+        insforge.realtime.on('fix_generated', handleFixGenerated);
       } catch {
-        // Connection failure is non-fatal — caller shows stale data
+        // Realtime is optional for the demo; the page polls while a scan runs.
       }
     };
 
@@ -66,6 +69,9 @@ export function useScanRealtime(
 
     return () => {
       active = false;
+      insforge.realtime.off('status_changed', handleStatusChanged);
+      insforge.realtime.off('finding_batch', handleFindingBatch);
+      insforge.realtime.off('fix_generated', handleFixGenerated);
       insforge.realtime.unsubscribe(channel);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

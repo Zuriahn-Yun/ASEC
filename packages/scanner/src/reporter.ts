@@ -1,22 +1,29 @@
 import { createClient } from '@insforge/sdk';
-import type { ScanFinding, SeverityLevel, ScannerType, ScanCategory } from '../../shared/types/finding.js';
+import type { ScanFinding } from '../../shared/types/finding.js';
 import type { Fix, ScanSummary } from '../../shared/types/fix.js';
 
-// Initialize InsForge client
 const insforge = createClient({
   baseUrl: process.env.INSFORGE_BASE_URL || process.env.NEXT_PUBLIC_INSFORGE_BASE_URL || '',
   anonKey: process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '',
 });
 
-/**
- * Update scan status and broadcast realtime event
- */
+let realtimeDisabled = false;
+
 export async function updateScanStatus(
   scanId: string,
   status: string,
-  error?: string
+  error?: string,
 ): Promise<void> {
   const updateData: Record<string, string> = { status };
+
+  if (status === 'cloning') {
+    updateData.started_at = new Date().toISOString();
+  }
+
+  if (status === 'complete' || status === 'failed') {
+    updateData.completed_at = new Date().toISOString();
+  }
+
   if (error) {
     updateData.error_message = error;
   }
@@ -31,35 +38,48 @@ export async function updateScanStatus(
     throw new Error(`Failed to update scan status: ${dbError.message}`);
   }
 
-  // Broadcast realtime event
-  try {
-    await insforge.realtime.connect();
-    await insforge.realtime.subscribe(`scan:${scanId}`);
-    await insforge.realtime.publish(`scan:${scanId}`, 'status_changed', {
-      scan_id: scanId,
-      status,
-      error,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (realtimeError) {
-    console.warn('Realtime broadcast failed (non-critical):', realtimeError);
+  await publishRealtime(scanId, 'status_changed', {
+    scan_id: scanId,
+    status,
+    error,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+export async function updateScanMetadata(
+  scanId: string,
+  metadata: { framework?: string },
+): Promise<void> {
+  const updateData: Record<string, string> = {};
+
+  if (metadata.framework) {
+    updateData.framework = metadata.framework;
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return;
+  }
+
+  const { error } = await insforge.database
+    .from('scan_jobs')
+    .update(updateData)
+    .eq('id', scanId);
+
+  if (error) {
+    console.warn('Failed to update scan metadata:', error);
   }
 }
 
-/**
- * Batch insert findings and broadcast finding_batch event
- */
 export async function insertFindings(
   scanId: string,
-  findings: Omit<ScanFinding, 'id' | 'created_at'>[]
+  findings: Omit<ScanFinding, 'id' | 'created_at'>[],
 ): Promise<void> {
   if (findings.length === 0) {
     console.log('No findings to insert');
     return;
   }
 
-  // Add scan_id to each finding
-  const findingsWithScanId = findings.map(finding => ({
+  const findingsWithScanId = findings.map((finding) => ({
     ...finding,
     scan_id: scanId,
   }));
@@ -75,32 +95,21 @@ export async function insertFindings(
 
   console.log(`Inserted ${findings.length} findings`);
 
-  // Broadcast realtime event
-  try {
-    await insforge.realtime.connect();
-    await insforge.realtime.subscribe(`scan:${scanId}`);
-    await insforge.realtime.publish(`scan:${scanId}`, 'finding_batch', {
-      scan_id: scanId,
-      count: findings.length,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (realtimeError) {
-    console.warn('Realtime broadcast failed (non-critical):', realtimeError);
-  }
+  await publishRealtime(scanId, 'finding_batch', {
+    scan_id: scanId,
+    count: findings.length,
+    timestamp: new Date().toISOString(),
+  });
 }
 
-/**
- * Update finding descriptions with plain-language explanations
- */
 export async function updateFindingDescriptions(
   scanId: string,
-  findings: ScanFinding[]
+  findings: ScanFinding[],
 ): Promise<void> {
   if (findings.length === 0) {
     return;
   }
 
-  // Update each finding's description in the database
   for (const finding of findings) {
     if (!finding.id || !finding.description) continue;
 
@@ -112,27 +121,22 @@ export async function updateFindingDescriptions(
 
     if (dbError) {
       console.warn(`Failed to update description for finding ${finding.id}:`, dbError);
-      // Continue with other findings - non-critical
     }
   }
 
   console.log(`Updated descriptions for ${findings.length} findings`);
 }
 
-/**
- * Batch insert fixes and broadcast fix_generated events
- */
 export async function insertFixes(
   scanId: string,
-  fixes: Omit<Fix, 'id' | 'created_at'>[]
+  fixes: Omit<Fix, 'id' | 'created_at'>[],
 ): Promise<void> {
   if (fixes.length === 0) {
     console.log('No fixes to insert');
     return;
   }
 
-  // Add scan_id to each fix
-  const fixesWithScanId = fixes.map(fix => ({
+  const fixesWithScanId = fixes.map((fix) => ({
     ...fix,
     scan_id: scanId,
   }));
@@ -148,29 +152,17 @@ export async function insertFixes(
 
   console.log(`Inserted ${fixes.length} fixes`);
 
-  // Broadcast realtime event for each fix
-  try {
-    await insforge.realtime.connect();
-    await insforge.realtime.subscribe(`scan:${scanId}`);
-    
-    for (const fix of fixes) {
-      await insforge.realtime.publish(`scan:${scanId}`, 'fix_generated', {
-        scan_id: scanId,
-        finding_id: fix.finding_id,
-        confidence: fix.confidence,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  } catch (realtimeError) {
-    console.warn('Realtime broadcast failed (non-critical):', realtimeError);
+  for (const fix of fixes) {
+    await publishRealtime(scanId, 'fix_generated', {
+      scan_id: scanId,
+      finding_id: fix.finding_id,
+      confidence: fix.confidence,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 
-/**
- * Compute and upsert scan summary
- */
 export async function computeSummary(scanId: string): Promise<void> {
-  // Fetch all findings for this scan
   const { data: findings, error: fetchError } = await insforge.database
     .from('findings')
     .select('severity, scan_type')
@@ -186,7 +178,6 @@ export async function computeSummary(scanId: string): Promise<void> {
     return;
   }
 
-  // Count by severity
   const severityCounts = {
     critical: 0,
     high: 0,
@@ -195,7 +186,6 @@ export async function computeSummary(scanId: string): Promise<void> {
     info: 0,
   };
 
-  // Count by scan type
   const typeCounts = {
     sast: 0,
     dast: 0,
@@ -203,17 +193,14 @@ export async function computeSummary(scanId: string): Promise<void> {
   };
 
   for (const finding of findings) {
-    // Count severity
     if (finding.severity in severityCounts) {
       severityCounts[finding.severity as keyof typeof severityCounts]++;
     }
-    // Count scan type
     if (finding.scan_type in typeCounts) {
       typeCounts[finding.scan_type as keyof typeof typeCounts]++;
     }
   }
 
-  // Fetch fix count
   const { data: fixes, error: fixError } = await insforge.database
     .from('fixes')
     .select('id')
@@ -237,7 +224,6 @@ export async function computeSummary(scanId: string): Promise<void> {
     fixes_generated: fixes?.length || 0,
   };
 
-  // Upsert summary (insert or update)
   const { error: upsertError } = await insforge.database
     .from('scan_summaries')
     .upsert({
@@ -251,4 +237,24 @@ export async function computeSummary(scanId: string): Promise<void> {
   }
 
   console.log('Scan summary computed and saved:', summary);
+}
+
+async function publishRealtime(scanId: string, event: string, payload: Record<string, unknown>): Promise<void> {
+  if (realtimeDisabled) {
+    return;
+  }
+
+  try {
+    await insforge.realtime.connect();
+    await insforge.realtime.subscribe(`scan:${scanId}`);
+    await insforge.realtime.publish(`scan:${scanId}`, event, payload);
+  } catch (realtimeError) {
+    if (realtimeError instanceof Error && realtimeError.message.includes('Invalid token')) {
+      realtimeDisabled = true;
+      console.warn('Realtime disabled for this scanner process because the backend rejected the token.');
+      return;
+    }
+
+    console.warn('Realtime broadcast failed (non-critical):', realtimeError);
+  }
 }

@@ -1,12 +1,12 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-// Type definitions (mirrored from shared/types)
 type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 type ScannerType = 'semgrep' | 'zap' | 'nuclei' | 'trivy' | 'npm_audit';
 type ScanCategory = 'sast' | 'dast' | 'sca';
@@ -28,7 +28,6 @@ interface ScanFinding {
   created_at: string;
 }
 
-// ZAP JSON report structure
 interface ZapSite {
   '@name': string;
   '@host': string;
@@ -71,59 +70,56 @@ interface ZapReport {
   site: ZapSite[];
 }
 
-/**
- * Run OWASP ZAP baseline scan via Docker
- */
 export async function runZap(
-  targetUrl: string
+  targetUrl: string,
 ): Promise<Omit<ScanFinding, 'id' | 'created_at'>[]> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zap-'));
   const reportPath = path.join(tempDir, 'zap-report.json');
 
   try {
-    // Check if Docker is available
     try {
-      await execAsync('which docker');
+      await execFileAsync('docker', ['--version']);
     } catch {
-      console.warn('[DAST] docker not found in PATH — skipping ZAP scan. Install: https://docs.docker.com/get-docker/');
+      console.warn('[DAST] Docker is not available, skipping ZAP scan.');
       return [];
     }
 
-    // Run ZAP baseline scan via Docker
-    const dockerCommand = `docker run --rm --network host \
-      -v "${tempDir}:/zap/wrk/:rw" \
-      ghcr.io/zaproxy/zaproxy:stable \
-      zap-baseline.py -t "${targetUrl}" -J /zap/wrk/zap-report.json`;
+    const dockerTargetUrl = getDockerReachableUrl(targetUrl);
+    console.log(`Starting ZAP scan against ${dockerTargetUrl}...`);
 
-    console.log('Starting ZAP scan...');
-    
     try {
-      await execAsync(dockerCommand, {
-        timeout: 10 * 60 * 1000, // 10 minute timeout
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+      await execFileAsync('docker', [
+        'run',
+        '--rm',
+        '--add-host=host.docker.internal:host-gateway',
+        '-v',
+        `${tempDir}:/zap/wrk/:rw`,
+        'ghcr.io/zaproxy/zaproxy:stable',
+        'zap-baseline.py',
+        '-t',
+        dockerTargetUrl,
+        '-J',
+        '/zap/wrk/zap-report.json',
+      ], {
+        timeout: 10 * 60 * 1000,
+        maxBuffer: 50 * 1024 * 1024,
       });
-    } catch (execError) {
-      // ZAP returns non-zero exit code if it finds issues, which is expected
-      // We still want to parse the report if it was generated
-      console.log('ZAP scan completed (may have found issues)');
+    } catch {
+      // ZAP exits non-zero when it finds issues. We still parse the report.
+      console.log('ZAP scan completed with findings or warnings.');
     }
 
-    // Check if report was generated
     try {
       await fs.access(reportPath);
     } catch {
-      console.warn('ZAP report not generated, returning empty array');
+      console.warn('ZAP report was not generated, returning an empty result set.');
       return [];
     }
 
-    // Read and parse ZAP JSON report
     const reportContent = await fs.readFile(reportPath, 'utf-8');
     const report: ZapReport = JSON.parse(reportContent);
 
-    // Map ZAP findings to ScanFinding format
     const findings: Omit<ScanFinding, 'id' | 'created_at'>[] = [];
-
-    // Risk code mapping: 3->critical, 2->high, 1->medium, 0->low
     const riskCodeToSeverity: Record<string, SeverityLevel> = {
       '3': 'critical',
       '2': 'high',
@@ -134,8 +130,7 @@ export async function runZap(
     for (const site of report.site || []) {
       for (const alert of site.alerts || []) {
         const severity = riskCodeToSeverity[alert.riskcode] || 'info';
-        
-        // Build description
+
         let description = alert.desc || '';
         if (alert.solution) {
           description += `\n\nSolution: ${alert.solution}`;
@@ -147,40 +142,30 @@ export async function runZap(
           description += `\n\nReference: ${alert.reference}`;
         }
 
-        // Get file path from first instance if available
-        let filePath: string | undefined;
-        if (alert.instances && alert.instances.length > 0) {
-          filePath = alert.instances[0].uri;
-        }
-
-        const finding: Omit<ScanFinding, 'id' | 'created_at'> = {
-          scan_id: '', // Will be set by caller
+        findings.push({
+          scan_id: '',
           scanner: 'zap',
           scan_type: 'dast',
           severity,
           title: alert.name || alert.alert,
           description: description.trim(),
-          file_path: filePath,
+          file_path: alert.instances?.[0]?.uri,
           cwe_id: alert.cweid,
           rule_id: alert.pluginid,
           raw_sarif: {
             confidence: alert.confidence,
             wascid: alert.wascid,
             alertRef: alert.alertRef,
-            instance_count: parseInt(alert.count) || 0,
+            instance_count: parseInt(alert.count, 10) || 0,
             instances: alert.instances,
           },
-        };
-
-        findings.push(finding);
+        });
       }
     }
 
     console.log(`ZAP scan found ${findings.length} issues`);
     return findings;
-
   } catch (error) {
-    // Handle timeout
     if (error instanceof Error && error.message.includes('timeout')) {
       console.error('ZAP scan timed out after 10 minutes');
       return [];
@@ -189,11 +174,20 @@ export async function runZap(
     console.error('ZAP scan failed:', error);
     return [];
   } finally {
-    // Cleanup temp directory
     try {
       await fs.rm(tempDir, { recursive: true, force: true });
     } catch {
-      // Ignore cleanup errors
+      // Ignore cleanup errors.
     }
   }
+}
+
+function getDockerReachableUrl(targetUrl: string): string {
+  const url = new URL(targetUrl);
+
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.hostname = 'host.docker.internal';
+  }
+
+  return url.toString();
 }

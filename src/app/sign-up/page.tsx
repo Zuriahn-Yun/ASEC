@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { insforge } from '@/lib/insforge';
+import { insforge, setAccessToken } from '@/lib/insforge';
 import { Shield, Mail, Lock, User, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 
@@ -39,6 +39,7 @@ export default function SignUp() {
     if (data?.requireEmailVerification) {
       setVerificationSent(true);
     } else if (data?.accessToken) {
+      setAccessToken(data.accessToken);
       router.push('/dashboard');
       router.refresh();
     }
@@ -63,6 +64,7 @@ export default function SignUp() {
     }
 
     if (data?.accessToken) {
+      setAccessToken(data.accessToken);
       router.push('/dashboard');
       router.refresh();
     }
