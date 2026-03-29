@@ -1,9 +1,9 @@
-import { exec, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
-const SEMGREP_TIMEOUT_MS = 15 * 60 * 1000;
+const SEMGREP_TIMEOUT_MS = 8 * 60 * 1000;
+const SEMGREP_EXCLUDES = ['.git', '.next', 'build', 'coverage', 'dist', 'node_modules', 'out', 'vendor'];
 function mapLevel(level) {
     switch (level) {
         case 'error':
@@ -48,7 +48,7 @@ export async function runSemgrep(repoDir) {
 }
 async function runLocalSemgrep(repoDir) {
     try {
-        const result = await execFileAsync('semgrep', ['scan', '--config', 'auto', '--sarif', '--quiet', repoDir], { maxBuffer: 50 * 1024 * 1024, timeout: SEMGREP_TIMEOUT_MS, shell: USE_SHELL });
+        const result = await execFileAsync('semgrep', buildSemgrepArgs(repoDir), { maxBuffer: 50 * 1024 * 1024, timeout: SEMGREP_TIMEOUT_MS, shell: USE_SHELL });
         return result.stdout;
     }
     catch (error) {
@@ -61,23 +61,14 @@ async function runLocalSemgrep(repoDir) {
 }
 async function runDockerSemgrep(repoDir) {
     try {
-        await execAsync('docker --version');
+        await execFileAsync('docker', ['--version']);
     }
     catch {
         console.warn('[SAST] Semgrep is unavailable and Docker is not installed.');
         return null;
     }
-    const command = [
-        'docker run --rm',
-        `-v "${repoDir}:/src"`,
-        'returntocorp/semgrep',
-        'semgrep scan --config auto --sarif --quiet /src',
-    ].join(' ');
     try {
-        const { stdout } = await execAsync(command, {
-            timeout: SEMGREP_TIMEOUT_MS,
-            maxBuffer: 50 * 1024 * 1024,
-        });
+        const { stdout } = await execFileAsync('docker', ['run', '--rm', '-v', `${repoDir}:/src`, 'returntocorp/semgrep', 'semgrep', ...buildSemgrepArgs('/src')], { timeout: SEMGREP_TIMEOUT_MS, maxBuffer: 50 * 1024 * 1024 });
         return stdout;
     }
     catch (error) {
@@ -88,4 +79,15 @@ async function runDockerSemgrep(repoDir) {
         console.warn('[SAST] Dockerized Semgrep scan failed:', error);
         return null;
     }
+}
+function buildSemgrepArgs(target) {
+    return [
+        'scan',
+        '--config',
+        'auto',
+        '--sarif',
+        '--quiet',
+        ...SEMGREP_EXCLUDES.flatMap((dir) => ['--exclude', dir]),
+        target,
+    ];
 }

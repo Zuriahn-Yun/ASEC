@@ -1,8 +1,9 @@
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
+const TRIVY_TIMEOUT_MS = 90_000;
+const TRIVY_SKIP_DIRS = ['.git', '.next', 'build', 'coverage', 'dist', 'node_modules', 'out', 'vendor'];
 function mapSarifSeverity(level) {
     switch (level) {
         case 'error':
@@ -47,8 +48,8 @@ export async function runTrivy(repoDir, scanId) {
 }
 async function runLocalTrivy(repoDir) {
     try {
-        const { stdout } = await execFileAsync('trivy', ['fs', '--format', 'sarif', '--quiet', repoDir], {
-            timeout: 300_000,
+        const { stdout } = await execFileAsync('trivy', buildTrivyArgs(repoDir), {
+            timeout: TRIVY_TIMEOUT_MS,
             maxBuffer: 50 * 1024 * 1024,
             shell: USE_SHELL,
         });
@@ -64,21 +65,22 @@ async function runLocalTrivy(repoDir) {
 }
 async function runDockerTrivy(repoDir) {
     try {
-        await execAsync('docker --version');
+        await execFileAsync('docker', ['--version']);
     }
     catch {
         console.warn('[SCA] Trivy is unavailable and Docker is not installed.');
         return null;
     }
-    const command = [
-        'docker run --rm',
-        `-v "${repoDir}:/repo:ro"`,
-        'ghcr.io/aquasecurity/trivy:latest',
-        'fs --format sarif --quiet /repo',
-    ].join(' ');
     try {
-        const { stdout } = await execAsync(command, {
-            timeout: 300_000,
+        const { stdout } = await execFileAsync('docker', [
+            'run',
+            '--rm',
+            '-v',
+            `${repoDir}:/repo:ro`,
+            'ghcr.io/aquasecurity/trivy:latest',
+            ...buildTrivyArgs('/repo'),
+        ], {
+            timeout: TRIVY_TIMEOUT_MS,
             maxBuffer: 50 * 1024 * 1024,
         });
         return stdout;
@@ -91,4 +93,16 @@ async function runDockerTrivy(repoDir) {
         console.warn('[SCA] Dockerized Trivy scan failed:', error);
         return null;
     }
+}
+function buildTrivyArgs(target) {
+    return [
+        'fs',
+        '--format',
+        'sarif',
+        '--quiet',
+        '--timeout',
+        '45s',
+        ...TRIVY_SKIP_DIRS.flatMap((dir) => ['--skip-dirs', `${target}/${dir}`]),
+        target,
+    ];
 }

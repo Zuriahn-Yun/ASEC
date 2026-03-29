@@ -1,11 +1,12 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
 
 export interface DetectionResult {
-  framework: 'express' | 'nextjs' | 'django' | 'flask' | 'spring' | 'unknown';
+  framework: 'express' | 'nextjs' | 'react' | 'vite' | 'django' | 'flask' | 'spring' | 'unknown';
   runtime: 'node' | 'python' | 'java' | 'unknown';
   startCommand: string;
   port: number;
+  workdir: string;
 }
 
 interface PackageJson {
@@ -14,49 +15,32 @@ interface PackageJson {
   scripts?: Record<string, string>;
 }
 
+interface DetectionCandidate extends DetectionResult {
+  score: number;
+}
+
+const PACKAGE_SCAN_DEPTH = 2;
+const SKIPPED_DIRS = new Set([
+  '.git',
+  '.next',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+  'vendor',
+]);
+
 export async function detectFramework(repoDir: string): Promise<DetectionResult> {
-  const packageJsonPath = join(repoDir, 'package.json');
-  const packageJson = await readFile(packageJsonPath, 'utf-8').catch(() => null);
+  const packageDirs = await findPackageJsonDirs(repoDir, PACKAGE_SCAN_DEPTH);
+  const candidates = await Promise.all(packageDirs.map((dir) => evaluateNodeCandidate(repoDir, dir)));
+  const bestCandidate = candidates
+    .filter((candidate): candidate is DetectionCandidate => candidate !== null)
+    .sort((left, right) => right.score - left.score)[0];
 
-  if (packageJson !== null) {
-    let pkg: PackageJson = {};
-    try {
-      pkg = JSON.parse(packageJson) as PackageJson;
-    } catch {
-      pkg = {};
-    }
-
-    const deps = {
-      ...(pkg.dependencies ?? {}),
-      ...(pkg.devDependencies ?? {}),
-    };
-    const scripts = pkg.scripts ?? {};
-
-    if ('next' in deps) {
-      return {
-        framework: 'nextjs',
-        runtime: 'node',
-        startCommand: scripts.start ? 'npm start' : 'npm run build && npm start',
-        port: inferPortFromScript(scripts.start ?? scripts.dev, 3000),
-      };
-    }
-
-    if ('express' in deps) {
-      return {
-        framework: 'express',
-        runtime: 'node',
-        startCommand: selectNodeStartCommand(scripts),
-        port: inferPortFromScript(scripts.start ?? scripts.dev, 3000),
-      };
-    }
-
-    const genericStartCommand = selectNodeStartCommand(scripts);
-    return {
-      framework: 'unknown',
-      runtime: 'node',
-      startCommand: genericStartCommand,
-      port: inferPortFromScript(scripts.start ?? scripts.preview ?? scripts.dev, 3000),
-    };
+  if (bestCandidate) {
+    const { score: _score, ...detection } = bestCandidate;
+    return detection;
   }
 
   const requirementsPath = join(repoDir, 'requirements.txt');
@@ -71,6 +55,7 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
         runtime: 'python',
         startCommand: 'python manage.py runserver 0.0.0.0:8000',
         port: 8000,
+        workdir: '.',
       };
     }
 
@@ -80,6 +65,7 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
         runtime: 'python',
         startCommand: 'flask run --host=0.0.0.0 --port=5000',
         port: 5000,
+        workdir: '.',
       };
     }
 
@@ -88,6 +74,7 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
       runtime: 'python',
       startCommand: 'python app.py',
       port: 8000,
+      workdir: '.',
     };
   }
 
@@ -96,33 +83,192 @@ export async function detectFramework(repoDir: string): Promise<DetectionResult>
     runtime: 'unknown',
     startCommand: '',
     port: 3000,
+    workdir: '.',
   };
 }
 
-function selectNodeStartCommand(scripts: Record<string, string>): string {
+async function findPackageJsonDirs(rootDir: string, maxDepth: number): Promise<string[]> {
+  const found = new Set<string>();
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > maxDepth) {
+      return;
+    }
+
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    if (entries.some((entry) => entry.isFile() && entry.name === 'package.json')) {
+      found.add(dir);
+    }
+
+    if (depth === maxDepth) {
+      return;
+    }
+
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && !SKIPPED_DIRS.has(entry.name))
+        .map((entry) => walk(join(dir, entry.name), depth + 1)),
+    );
+  }
+
+  await walk(rootDir, 0);
+  return Array.from(found);
+}
+
+async function evaluateNodeCandidate(repoDir: string, packageDir: string): Promise<DetectionCandidate | null> {
+  const packageJson = await readFile(join(packageDir, 'package.json'), 'utf-8').catch(() => null);
+  if (packageJson === null) {
+    return null;
+  }
+
+  let pkg: PackageJson = {};
+  try {
+    pkg = JSON.parse(packageJson) as PackageJson;
+  } catch {
+    return null;
+  }
+
+  const deps = {
+    ...(pkg.dependencies ?? {}),
+    ...(pkg.devDependencies ?? {}),
+  };
+  const scripts = pkg.scripts ?? {};
+  const relativeDir = normalizeRelativeDir(repoDir, packageDir);
+  const framework = inferNodeFramework(deps, scripts);
+  const startCommand = selectStartCommand(framework, scripts);
+
+  if (!startCommand) {
+    return null;
+  }
+
+  return {
+    framework,
+    runtime: 'node',
+    startCommand,
+    port: inferPort(framework, scripts),
+    workdir: relativeDir,
+    score: scoreCandidate(relativeDir, framework, startCommand, scripts),
+  };
+}
+
+function inferNodeFramework(
+  deps: Record<string, string>,
+  scripts: Record<string, string>,
+): DetectionResult['framework'] {
+  const scriptValues = Object.values(scripts).join(' ').toLowerCase();
+
+  if ('next' in deps || scriptValues.includes('next ')) {
+    return 'nextjs';
+  }
+
+  if ('react-scripts' in deps || scriptValues.includes('react-scripts')) {
+    return 'react';
+  }
+
+  if ('vite' in deps || scriptValues.includes('vite')) {
+    return 'vite';
+  }
+
+  if ('express' in deps) {
+    return 'express';
+  }
+
+  return 'unknown';
+}
+
+function selectStartCommand(
+  framework: DetectionResult['framework'],
+  scripts: Record<string, string>,
+): string {
+  if (framework === 'nextjs' || framework === 'vite') {
+    if (scripts.dev) return 'npm run dev';
+    if (scripts.start) return 'npm start';
+    if (scripts.preview) return 'npm run preview';
+  }
+
+  if (framework === 'react') {
+    if (scripts.start) return 'npm start';
+    if (scripts.dev) return 'npm run dev';
+  }
+
+  if (framework === 'express') {
+    if (scripts.start) return 'npm start';
+    if (scripts.dev) return 'npm run dev';
+  }
+
   if (scripts.start) return 'npm start';
   if (scripts.preview) return 'npm run preview';
   if (scripts.dev) return 'npm run dev';
   return '';
 }
 
-function inferPortFromScript(script: string | undefined, fallback: number): number {
-  if (!script) {
-    return fallback;
-  }
-
-  const explicitPort = script.match(/(?:--port=|--port\s+|PORT=)(\d{2,5})/i);
+function inferPort(
+  framework: DetectionResult['framework'],
+  scripts: Record<string, string>,
+): number {
+  const scriptText = `${scripts.start ?? ''} ${scripts.preview ?? ''} ${scripts.dev ?? ''}`;
+  const explicitPort = scriptText.match(/(?:--port=|--port\s+|PORT=)(\d{2,5})/i);
   if (explicitPort) {
     return Number(explicitPort[1]);
   }
 
-  if (script.includes('vite') || script.includes('preview')) {
-    return 4173;
+  if (framework === 'vite') return 5173;
+  if (framework === 'react' || framework === 'nextjs') return 3000;
+  if (scriptText.includes('7777')) return 7777;
+  if (scriptText.includes('8000')) return 8000;
+  if (scriptText.includes('5000')) return 5000;
+  return 3000;
+}
+
+function scoreCandidate(
+  relativeDir: string,
+  framework: DetectionResult['framework'],
+  startCommand: string,
+  scripts: Record<string, string>,
+): number {
+  let score = 0;
+
+  switch (framework) {
+    case 'nextjs':
+      score += 100;
+      break;
+    case 'react':
+    case 'vite':
+      score += 95;
+      break;
+    case 'express':
+      score += 70;
+      break;
+    default:
+      score += 35;
+      break;
   }
 
-  if (script.includes('next')) {
-    return 3000;
+  if (relativeDir === '.') {
+    score += 5;
   }
 
-  return fallback;
+  if (/(^|[\\/])(frontend|client|web|ui)([\\/]|$)/i.test(relativeDir)) {
+    score += 30;
+  }
+
+  if (/(^|[\\/])(backend|api|server)([\\/]|$)/i.test(relativeDir)) {
+    score -= 10;
+  }
+
+  const scriptText = `${scripts.start ?? ''} ${scripts.preview ?? ''} ${scripts.dev ?? ''}`.toLowerCase();
+  if (scriptText.includes('cd frontend') || scriptText.includes('cd backend')) {
+    score -= 25;
+  }
+
+  if (startCommand === 'npm run dev') {
+    score += 5;
+  }
+
+  return score;
+}
+
+function normalizeRelativeDir(rootDir: string, packageDir: string): string {
+  const relativePath = relative(rootDir, packageDir);
+  return relativePath === '' ? '.' : relativePath.split(sep).join('/');
 }

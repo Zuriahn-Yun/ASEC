@@ -1,9 +1,6 @@
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
-const execFileAsync = promisify(execFile);
-const USE_SHELL = process.platform === 'win32';
+import { runNpm } from '../npm.js';
 function mapNpmSeverity(severity) {
     switch (severity) {
         case 'critical': return 'critical';
@@ -15,47 +12,44 @@ function mapNpmSeverity(severity) {
     }
 }
 export async function runNpmAudit(repoDir, scanId) {
-    // Only run if package-lock.json or package.json exists
-    const hasPackageJson = existsSync(join(repoDir, 'package.json'));
-    if (!hasPackageJson) {
+    if (!existsSync(join(repoDir, 'package.json'))) {
         console.warn('[npm-audit] No package.json found, skipping');
         return [];
     }
     try {
-        // npm audit exits with code 1 when vulnerabilities are found -- that's expected
         let stdout;
         try {
-            const result = await execFileAsync('npm', ['audit', '--json'], {
+            const result = await runNpm(['audit', '--json'], {
                 cwd: repoDir,
-                timeout: 120_000, // 2 min
+                timeout: 60_000,
                 maxBuffer: 50 * 1024 * 1024,
-                shell: USE_SHELL,
             });
             stdout = result.stdout;
         }
-        catch (err) {
-            // npm audit exits 1 when vulns found -- grab stdout from the error
-            if (err && typeof err === 'object' && 'stdout' in err) {
-                stdout = err.stdout;
+        catch (error) {
+            if (error && typeof error === 'object' && 'stdout' in error) {
+                stdout = String(error.stdout ?? '');
             }
             else {
-                throw err;
+                throw error;
             }
+        }
+        if (!stdout.trim()) {
+            return [];
         }
         const report = JSON.parse(stdout);
         const findings = [];
         for (const [pkgName, vuln] of Object.entries(report.vulnerabilities ?? {})) {
-            // Extract CWE from via entries
             let cweId;
             let description = '';
             if (Array.isArray(vuln.via)) {
-                for (const v of vuln.via) {
-                    if (typeof v === 'object' && v !== null) {
-                        if (v.cwe && v.cwe.length > 0) {
-                            cweId = v.cwe[0];
+                for (const viaEntry of vuln.via) {
+                    if (typeof viaEntry === 'object' && viaEntry !== null) {
+                        if (viaEntry.cwe && viaEntry.cwe.length > 0) {
+                            cweId = viaEntry.cwe[0];
                         }
-                        if (v.title) {
-                            description = v.title;
+                        if (viaEntry.title) {
+                            description = viaEntry.title;
                         }
                     }
                 }
@@ -67,7 +61,8 @@ export async function runNpmAudit(repoDir, scanId) {
                 scan_type: 'sca',
                 severity: mapNpmSeverity(vuln.severity),
                 title: `${title} (${pkgName})`,
-                description: description || `Package ${pkgName} has a known ${vuln.severity} severity vulnerability. Range: ${vuln.range ?? 'unknown'}`,
+                description: description ||
+                    `Package ${pkgName} has a known ${vuln.severity} severity vulnerability. Range: ${vuln.range ?? 'unknown'}`,
                 file_path: 'package.json',
                 line_start: undefined,
                 line_end: undefined,
@@ -78,14 +73,14 @@ export async function runNpmAudit(repoDir, scanId) {
         }
         return findings;
     }
-    catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         if (message.includes('ENOENT') || message.includes('not found') || message.includes('not recognized')) {
-            console.warn('[SCA] npm not found in PATH — skipping npm audit. Install: https://nodejs.org/en/download/');
+            console.warn('[SCA] npm is unavailable for npm audit, skipping.');
             return [];
         }
-        if (message.includes('TIMEOUT') || message.includes('timed out')) {
-            console.warn('[npm-audit] Timed out after 2 minutes');
+        if (message.toLowerCase().includes('timed out')) {
+            console.warn('[npm-audit] Timed out after 60 seconds');
             return [];
         }
         console.error('[npm-audit] Scan failed:', message);

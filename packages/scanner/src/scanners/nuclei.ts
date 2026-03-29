@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -26,6 +26,7 @@ interface ScanFinding {
 }
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 interface NucleiOutput {
   template: string;
@@ -59,25 +60,32 @@ export async function runNuclei(
 
   try {
     try {
-      await execAsync('docker --version');
+      await execFileAsync('docker', ['--version']);
     } catch {
       console.warn('[DAST] Docker is not available, skipping Nuclei scan.');
       return [];
     }
 
     const dockerTargetUrl = getDockerReachableUrl(targetUrl);
-    const command = [
-      'docker run --rm',
-      '--add-host=host.docker.internal:host-gateway',
-      `-v "${tempDir}:/work:rw"`,
-      'projectdiscovery/nuclei:latest',
-      `-u "${dockerTargetUrl}" -jsonl -silent -severity critical,high,medium,low -o /work/nuclei.jsonl`,
-    ].join(' ');
-
     console.log(`Starting Nuclei scan against ${dockerTargetUrl}...`);
 
     try {
-      await execAsync(command, {
+      await execFileAsync('docker', [
+        'run',
+        '--rm',
+        '--add-host=host.docker.internal:host-gateway',
+        '-v',
+        `${tempDir}:/work:rw`,
+        'projectdiscovery/nuclei:latest',
+        '-u',
+        dockerTargetUrl,
+        '-jsonl',
+        '-silent',
+        '-severity',
+        'critical,high,medium,low',
+        '-o',
+        '/work/nuclei.jsonl',
+      ], {
         timeout: 5 * 60 * 1000,
         maxBuffer: 50 * 1024 * 1024,
       });

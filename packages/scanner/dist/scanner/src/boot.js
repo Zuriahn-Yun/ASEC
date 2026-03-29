@@ -1,73 +1,131 @@
-import { execFile } from 'node:child_process';
-import { createServer } from 'node:net';
+import { execFile, spawn } from 'node:child_process';
+import { Socket, createServer } from 'node:net';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { runNpm } from './npm.js';
 const execFileAsync = promisify(execFile);
-const USE_SHELL = process.platform === 'win32';
 const HEALTH_CHECK_INTERVAL_MS = 2000;
-const HEALTH_CHECK_TIMEOUT_MS = 60_000;
-/**
- * Boots the target app in a Docker container.
- * The container installs dependencies first so DAST can run against a fresh clone.
- * A free host port is chosen dynamically to avoid collisions with the frontend.
- */
+const HEALTH_CHECK_TIMEOUT_MS = 180_000;
+const LOG_LIMIT = 12_000;
+const runningApps = new Map();
 export async function bootApp(repoDir, detection) {
     if (!detection.startCommand) {
         throw new Error('Cannot boot app: no start command detected');
     }
-    const containerPort = detection.port;
-    const hostPort = await getAvailablePort();
-    const image = detection.runtime === 'python' ? 'python:3.11-slim' : 'node:20-slim';
-    const containerCommand = buildContainerCommand(detection, containerPort);
-    const { stdout } = await execFileAsync('docker', [
-        'run',
-        '--detach',
-        '--rm',
-        '--workdir', '/app',
-        '--volume', `${repoDir}:/app`,
-        '--publish', `${hostPort}:${containerPort}`,
-        '--env', `PORT=${containerPort}`,
-        '--env', 'HOST=0.0.0.0',
-        '--env', 'HOSTNAME=0.0.0.0',
-        image,
-        'sh',
-        '-lc',
-        containerCommand,
-    ], { shell: USE_SHELL });
-    const containerId = stdout.trim();
-    const appUrl = `http://localhost:${hostPort}`;
+    if (detection.runtime !== 'node') {
+        throw new Error(`Cannot boot app: unsupported runtime ${detection.runtime}`);
+    }
+    const appDir = detection.workdir === '.' ? repoDir : join(repoDir, detection.workdir);
+    await installNodeDependencies(appDir);
+    const requestedPort = await getAvailablePort();
+    const candidatePorts = await getCandidatePorts(requestedPort, detection.port);
+    const startCommand = buildStartCommand(detection, requestedPort);
+    const child = spawn(process.platform === 'win32' ? 'cmd.exe' : 'sh', process.platform === 'win32'
+        ? ['/d', '/s', '/c', startCommand]
+        : ['-lc', startCommand], {
+        cwd: appDir,
+        env: {
+            ...process.env,
+            PORT: String(requestedPort),
+            HOST: '0.0.0.0',
+            HOSTNAME: '0.0.0.0',
+            BROWSER: 'none',
+            CI: 'true',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+    });
+    const handle = `pid:${child.pid}`;
+    const state = { child, logs: '' };
+    runningApps.set(handle, state);
+    child.stdout.on('data', (chunk) => appendLogs(state, chunk));
+    child.stderr.on('data', (chunk) => appendLogs(state, chunk));
     const deadline = Date.now() + HEALTH_CHECK_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        const healthy = await fetch(appUrl).then(() => true).catch(() => false);
-        if (healthy) {
-            return { containerId, appUrl };
+        if (child.exitCode !== null) {
+            throw new Error(`App process exited before becoming healthy.\nLogs:\n${state.logs}`.trim());
+        }
+        for (const port of candidatePorts) {
+            const appUrl = `http://127.0.0.1:${port}`;
+            const healthy = await fetch(appUrl).then(() => true).catch(() => false);
+            if (healthy) {
+                return { containerId: handle, appUrl };
+            }
         }
         await sleep(HEALTH_CHECK_INTERVAL_MS);
     }
-    await stopApp(containerId).catch(() => undefined);
-    throw new Error(`App at ${appUrl} did not become healthy within ${HEALTH_CHECK_TIMEOUT_MS / 1000}s`);
+    await stopApp(handle).catch(() => undefined);
+    throw new Error(`App did not become healthy on any expected port within ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` +
+        (state.logs ? `\nLogs:\n${state.logs}` : ''));
 }
 export async function stopApp(containerId) {
-    await execFileAsync('docker', ['stop', containerId], { shell: USE_SHELL });
-}
-function buildContainerCommand(detection, port) {
-    const steps = [];
-    if (detection.runtime === 'node') {
-        steps.push('if [ -f package-lock.json ]; then npm ci; else npm install; fi');
+    if (!containerId.startsWith('pid:')) {
+        return;
     }
-    if (detection.runtime === 'python') {
-        steps.push('pip install --no-cache-dir -r requirements.txt');
+    const state = runningApps.get(containerId);
+    const pid = Number(containerId.slice(4));
+    if (process.platform === 'win32') {
+        await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']).catch(() => undefined);
     }
-    steps.push(adaptStartCommand(detection.startCommand, port));
-    return steps.join(' && ');
+    else {
+        state?.child.kill('SIGTERM');
+    }
+    runningApps.delete(containerId);
 }
-function adaptStartCommand(startCommand, port) {
-    if (startCommand === 'npm run dev') {
+async function installNodeDependencies(appDir) {
+    if (existsSync(join(appDir, 'node_modules'))) {
+        return;
+    }
+    const args = existsSync(join(appDir, 'package-lock.json'))
+        ? ['ci', '--no-audit', '--no-fund']
+        : ['install', '--no-audit', '--no-fund'];
+    await runNpm(args, { cwd: appDir, timeout: 180_000, maxBuffer: 50 * 1024 * 1024 });
+}
+function buildStartCommand(detection, port) {
+    if (detection.framework === 'nextjs' && detection.startCommand === 'npm run dev') {
+        return `npm run dev -- --hostname 0.0.0.0 --port ${port}`;
+    }
+    if (detection.framework === 'nextjs' && detection.startCommand === 'npm start') {
+        return `npm start -- --hostname 0.0.0.0 --port ${port}`;
+    }
+    if (detection.framework === 'vite' && detection.startCommand === 'npm run dev') {
         return `npm run dev -- --host 0.0.0.0 --port ${port}`;
     }
-    if (startCommand === 'npm run preview') {
+    if (detection.framework === 'vite' && detection.startCommand === 'npm run preview') {
         return `npm run preview -- --host 0.0.0.0 --port ${port}`;
     }
-    return startCommand;
+    return detection.startCommand;
+}
+async function getCandidatePorts(requestedPort, detectedPort) {
+    const fallbackPorts = Array.from(new Set([detectedPort, 3000, 4000, 4173, 5000, 5173, 7777, 8000, 8080]))
+        .filter((port) => port !== requestedPort);
+    const availability = await Promise.all(fallbackPorts.map(async (port) => ({ port, busy: await isPortBusy(port) })));
+    return [requestedPort, ...availability.filter((entry) => !entry.busy).map((entry) => entry.port)];
+}
+function isPortBusy(port) {
+    return new Promise((resolve) => {
+        const socket = new Socket();
+        resolveUsingConnection(socket, port, resolve);
+    });
+}
+function resolveUsingConnection(socket, port, resolve) {
+    const done = (value) => {
+        socket.removeAllListeners();
+        socket.destroy();
+        resolve(value);
+    };
+    socket.setTimeout(1000);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(port, '127.0.0.1');
+}
+function appendLogs(state, chunk) {
+    state.logs += chunk.toString();
+    if (state.logs.length > LOG_LIMIT) {
+        state.logs = state.logs.slice(-LOG_LIMIT);
+    }
 }
 function getAvailablePort() {
     return new Promise((resolve, reject) => {

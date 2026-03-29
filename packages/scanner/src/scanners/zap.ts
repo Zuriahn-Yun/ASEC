@@ -1,10 +1,11 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 type ScannerType = 'semgrep' | 'zap' | 'nuclei' | 'trivy' | 'npm_audit';
@@ -77,25 +78,29 @@ export async function runZap(
 
   try {
     try {
-      await execAsync('docker --version');
+      await execFileAsync('docker', ['--version']);
     } catch {
       console.warn('[DAST] Docker is not available, skipping ZAP scan.');
       return [];
     }
 
     const dockerTargetUrl = getDockerReachableUrl(targetUrl);
-    const dockerCommand = [
-      'docker run --rm',
-      '--add-host=host.docker.internal:host-gateway',
-      `-v "${tempDir}:/zap/wrk/:rw"`,
-      'ghcr.io/zaproxy/zaproxy:stable',
-      `zap-baseline.py -t "${dockerTargetUrl}" -J /zap/wrk/zap-report.json`,
-    ].join(' ');
-
     console.log(`Starting ZAP scan against ${dockerTargetUrl}...`);
 
     try {
-      await execAsync(dockerCommand, {
+      await execFileAsync('docker', [
+        'run',
+        '--rm',
+        '--add-host=host.docker.internal:host-gateway',
+        '-v',
+        `${tempDir}:/zap/wrk/:rw`,
+        'ghcr.io/zaproxy/zaproxy:stable',
+        'zap-baseline.py',
+        '-t',
+        dockerTargetUrl,
+        '-J',
+        '/zap/wrk/zap-report.json',
+      ], {
         timeout: 10 * 60 * 1000,
         maxBuffer: 50 * 1024 * 1024,
       });

@@ -25,6 +25,10 @@ const insforge = createClient({
   anonKey: process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '',
 });
 
+const SAST_TIMEOUT_MS = 8 * 60 * 1000;
+const DAST_TIMEOUT_MS = 5 * 60 * 1000;
+const SCA_TIMEOUT_MS = 3 * 60 * 1000;
+
 export async function runPipeline(job: PipelineJob): Promise<void> {
   let repoDir: string | undefined;
 
@@ -57,9 +61,24 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
     await updateScanMetadata(job.id, { framework: detection.framework });
 
     const [sastCount, dastResults, scaResults] = await Promise.all([
-      runSastWorkflow(job.id, repoDir, types.sast),
-      runDastWorkflow(job.id, repoDir, detection, types.dast),
-      runScaWorkflow(job.id, repoDir, types.sca),
+      withTimeout(
+        runSastWorkflow(job.id, repoDir, types.sast),
+        SAST_TIMEOUT_MS,
+        '[SAST] Timed out; continuing without blocking the pipeline.',
+        null,
+      ),
+      withTimeout(
+        runDastWorkflow(job.id, repoDir, detection, types.dast),
+        DAST_TIMEOUT_MS,
+        '[DAST] Timed out; continuing without blocking the pipeline.',
+        { zap: null, nuclei: null },
+      ),
+      withTimeout(
+        runScaWorkflow(job.id, repoDir, types.sca),
+        SCA_TIMEOUT_MS,
+        '[SCA] Timed out; continuing without blocking the pipeline.',
+        { trivy: null, npmAudit: null },
+      ),
     ]);
 
     scannerResults.semgrep = sastCount;
@@ -255,4 +274,29 @@ function logScannerSummary(results: ScannerResults): void {
   console.log(`  SCA   - npm audit: ${results.npmAudit ?? 'skipped'} findings`);
   console.log(`  Total: ${totalCount} findings`);
   if (skipped.length) console.log(`  Skipped: ${skipped.join(', ')}`);
+}
+
+async function withTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+  fallback: T,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(timeoutMessage);
+          resolve(fallback);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }

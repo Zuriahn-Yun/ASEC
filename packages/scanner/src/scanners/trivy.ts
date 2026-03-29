@@ -1,10 +1,11 @@
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { ScanFinding, SeverityLevel } from '../../../shared/types';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
+const TRIVY_TIMEOUT_MS = 90_000;
+const TRIVY_SKIP_DIRS = ['.git', '.next', 'build', 'coverage', 'dist', 'node_modules', 'out', 'vendor'];
 
 type FindingWithoutMeta = Omit<ScanFinding, 'id' | 'created_at'>;
 
@@ -78,8 +79,8 @@ export async function runTrivy(repoDir: string, scanId: string): Promise<Finding
 
 async function runLocalTrivy(repoDir: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('trivy', ['fs', '--format', 'sarif', '--quiet', repoDir], {
-      timeout: 300_000,
+    const { stdout } = await execFileAsync('trivy', buildTrivyArgs(repoDir), {
+      timeout: TRIVY_TIMEOUT_MS,
       maxBuffer: 50 * 1024 * 1024,
       shell: USE_SHELL,
     });
@@ -96,24 +97,28 @@ async function runLocalTrivy(repoDir: string): Promise<string | null> {
 
 async function runDockerTrivy(repoDir: string): Promise<string | null> {
   try {
-    await execAsync('docker --version');
+    await execFileAsync('docker', ['--version']);
   } catch {
     console.warn('[SCA] Trivy is unavailable and Docker is not installed.');
     return null;
   }
 
-  const command = [
-    'docker run --rm',
-    `-v "${repoDir}:/repo:ro"`,
-    'ghcr.io/aquasecurity/trivy:latest',
-    'fs --format sarif --quiet /repo',
-  ].join(' ');
-
   try {
-    const { stdout } = await execAsync(command, {
-      timeout: 300_000,
-      maxBuffer: 50 * 1024 * 1024,
-    });
+    const { stdout } = await execFileAsync(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '-v',
+        `${repoDir}:/repo:ro`,
+        'ghcr.io/aquasecurity/trivy:latest',
+        ...buildTrivyArgs('/repo'),
+      ],
+      {
+        timeout: TRIVY_TIMEOUT_MS,
+        maxBuffer: 50 * 1024 * 1024,
+      },
+    );
     return stdout;
   } catch (error) {
     const execError = error as { stdout?: string };
@@ -124,4 +129,17 @@ async function runDockerTrivy(repoDir: string): Promise<string | null> {
     console.warn('[SCA] Dockerized Trivy scan failed:', error);
     return null;
   }
+}
+
+function buildTrivyArgs(target: string): string[] {
+  return [
+    'fs',
+    '--format',
+    'sarif',
+    '--quiet',
+    '--timeout',
+    '45s',
+    ...TRIVY_SKIP_DIRS.flatMap((dir) => ['--skip-dirs', `${target}/${dir}`]),
+    target,
+  ];
 }

@@ -1,18 +1,20 @@
-import { exec, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-const execAsync = promisify(exec);
+import { getNpmExecutable, runNpm } from './npm.js';
 const execFileAsync = promisify(execFile);
 async function checkTool(name) {
+    const executable = resolveExecutable(name);
     try {
-        // Use shell: true so Windows .cmd scripts (e.g. npm.cmd) are resolved
-        const { stdout, stderr } = await execFileAsync(name, ['--version'], { timeout: 5000, shell: true });
+        const { stdout, stderr } = name === 'npm'
+            ? await runNpm(['--version'], { cwd: process.cwd(), timeout: 5000 })
+            : await execFileAsync(executable, ['--version'], { timeout: 5000 });
         // Some tools (e.g. nuclei) print version to stderr; strip ANSI codes
         const output = stdout.trim() || stderr.trim();
         const version = output.split('\n')[0].replace(/\x1b\[[0-9;]*m/g, '').trim();
         // For docker, also verify the daemon is running
         if (name === 'docker') {
             try {
-                await execAsync('docker info --format "{{.ServerVersion}}"', { timeout: 5000 });
+                await execFileAsync(executable, ['info', '--format', '{{.ServerVersion}}'], { timeout: 5000 });
             }
             catch {
                 return { name, available: true, version: version + ' (daemon not running)' };
@@ -23,6 +25,12 @@ async function checkTool(name) {
     catch {
         return { name, available: false };
     }
+}
+function resolveExecutable(name) {
+    if (process.platform === 'win32' && name === 'npm') {
+        return getNpmExecutable();
+    }
+    return name;
 }
 export async function checkTools() {
     const tools = ['git', 'semgrep', 'docker', 'nuclei', 'trivy', 'npm'];
