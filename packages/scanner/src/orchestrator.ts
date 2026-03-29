@@ -25,11 +25,12 @@ const insforge = createClient({
   anonKey: process.env.INSFORGE_ANON_KEY || process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY || '',
 });
 
-const SAST_TIMEOUT_MS = 8 * 60 * 1000;
-const DAST_TIMEOUT_MS = 5 * 60 * 1000;
-const SCA_TIMEOUT_MS = 3 * 60 * 1000;
+const SAST_TIMEOUT_MS = 10 * 60 * 1000;
+const DAST_TIMEOUT_MS = 15 * 60 * 1000;
+const SCA_TIMEOUT_MS = 5 * 60 * 1000;
 
 export async function runPipeline(job: PipelineJob): Promise<void> {
+  const pipelineStart = Date.now();
   let repoDir: string | undefined;
 
   const types = {
@@ -37,6 +38,13 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
     dast: job.scan_types?.dast !== false,
     sca: job.scan_types?.sca !== false,
   };
+
+  console.log(`\n========== PIPELINE START ==========`);
+  console.log(`  Scan ID:  ${job.id}`);
+  console.log(`  Repo:     ${job.repo_url}`);
+  console.log(`  Branch:   ${job.branch || 'default'}`);
+  console.log(`  Types:    SAST=${types.sast} DAST=${types.dast} SCA=${types.sca}`);
+  console.log(`====================================\n`);
 
   const scannerResults: ScannerResults = {
     semgrep: null,
@@ -55,10 +63,15 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
 
     await updateScanStatus(job.id, 'cloning');
     repoDir = await cloneRepo(job.repo_url, job.branch);
+    console.log(`[CLONE] Done -> ${repoDir}`);
 
     await updateScanStatus(job.id, 'detecting');
     const detection = await detectFramework(repoDir);
+    console.log(`[DETECT] Framework: ${detection.framework} | Runtime: ${detection.runtime} | Start: "${detection.startCommand}" | Port: ${detection.port}`);
     await updateScanMetadata(job.id, { framework: detection.framework });
+
+    console.log('\n[PIPELINE] Starting parallel scan workflows...');
+    const scanStart = Date.now();
 
     const [sastCount, dastResults, scaResults] = await Promise.all([
       withTimeout(
@@ -81,17 +94,35 @@ export async function runPipeline(job: PipelineJob): Promise<void> {
       ),
     ]);
 
+    console.log(`[PIPELINE] All scan workflows finished in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
+
     scannerResults.semgrep = sastCount;
     scannerResults.zap = dastResults.zap;
     scannerResults.nuclei = dastResults.nuclei;
     scannerResults.trivy = scaResults.trivy;
     scannerResults.npmAudit = scaResults.npmAudit;
 
-    await runAiAnalysis(job.id, repoDir);
     logScannerSummary(scannerResults);
-    await finalizeReport(job.id);
+
+    // AI analysis — non-fatal
+    try {
+      await runAiAnalysis(job.id, repoDir);
+    } catch (aiError) {
+      console.error('[AI] Analysis failed (non-fatal):', aiError);
+    }
+
+    // Finalize — non-fatal summary, but always try to set status=complete
+    try {
+      await finalizeReport(job.id);
+    } catch (finalError) {
+      console.error('[FINALIZE] Report failed, forcing complete status:', finalError);
+      await updateScanStatus(job.id, 'complete');
+    }
+
+    console.log(`\n========== PIPELINE COMPLETE (${((Date.now() - pipelineStart) / 1000).toFixed(1)}s) ==========\n`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`[PIPELINE] Fatal error: ${errorMessage}`);
     await updateScanStatus(job.id, 'failed', errorMessage);
     throw error;
   } finally {
@@ -123,22 +154,23 @@ async function runSastWorkflow(scanId: string, repoDir: string, enabled: boolean
 async function runDast(scanId: string, appUrl: string): Promise<{ zap: number; nuclei: number }> {
   await updateScanStatus(scanId, 'scanning_dast');
 
-  const [zapResult, nucleiResult] = await Promise.allSettled([
-    runZap(appUrl),
+  // Run Nuclei and ZAP in parallel — both against the booted app
+  const [nucleiResult, zapResult] = await Promise.allSettled([
     runNuclei(appUrl),
+    runZap(appUrl),
   ]);
 
-  const zapFindings = zapResult.status === 'fulfilled' ? zapResult.value : [];
   const nucleiFindings = nucleiResult.status === 'fulfilled' ? nucleiResult.value : [];
+  const zapFindings = zapResult.status === 'fulfilled' ? zapResult.value : [];
 
-  if (zapResult.status === 'rejected') {
-    console.error('ZAP scan failed:', zapResult.reason);
-  }
   if (nucleiResult.status === 'rejected') {
-    console.error('Nuclei scan failed:', nucleiResult.reason);
+    console.error('[DAST] Nuclei scan failed:', nucleiResult.reason);
+  }
+  if (zapResult.status === 'rejected') {
+    console.error('[DAST] ZAP scan failed:', zapResult.reason);
   }
 
-  const allFindings = [...zapFindings, ...nucleiFindings].map((finding) => ({ ...finding, scan_id: scanId }));
+  const allFindings = [...nucleiFindings, ...zapFindings].map((f) => ({ ...f, scan_id: scanId }));
   await insertFindings(scanId, allFindings);
 
   return { zap: zapFindings.length, nuclei: nucleiFindings.length };
@@ -184,10 +216,10 @@ async function runSca(scanId: string, repoDir: string): Promise<{ trivy: number;
   const npmFindings = npmResult.status === 'fulfilled' ? npmResult.value : [];
 
   if (trivyResult.status === 'rejected') {
-    console.error('Trivy scan failed:', trivyResult.reason);
+    console.error('[SCA] Trivy scan failed:', trivyResult.reason);
   }
   if (npmResult.status === 'rejected') {
-    console.error('npm audit failed:', npmResult.reason);
+    console.error('[SCA] npm audit failed:', npmResult.reason);
   }
 
   const allFindings = [...trivyFindings, ...npmFindings];
@@ -218,24 +250,27 @@ async function runAiAnalysis(scanId: string, repoDir: string): Promise<void> {
     .eq('scan_id', scanId);
 
   if (fetchError) {
-    console.error('Failed to fetch findings for AI analysis:', fetchError);
+    console.error('[AI] Failed to fetch findings for analysis:', fetchError);
     return;
   }
 
   if (!findings || findings.length === 0) {
-    console.log('No findings to analyze');
+    console.log('[AI] No findings to analyze');
     return;
   }
 
+  console.log(`[AI] Triaging ${findings.length} findings...`);
   const triaged = await triageFindings(findings as ScanFinding[]);
-  console.log(`Generating plain-language explanations for ${triaged.length} findings...`);
+  console.log(`[AI] Generating plain-language explanations for ${triaged.length} findings...`);
   const explained = await generateExplanations(triaged);
 
   await updateFindingDescriptions(scanId, explained);
   await updateScanStatus(scanId, 'fixing');
 
+  console.log('[AI] Generating fixes...');
   const fixes = await generateFixes(explained, repoDir, scanId);
   await insertFixes(scanId, fixes);
+  console.log(`[AI] Generated ${fixes.length} fixes`);
 }
 
 async function finalizeReport(scanId: string): Promise<void> {
@@ -266,7 +301,7 @@ function logScannerSummary(results: ScannerResults): void {
   if (results.trivy === null) skipped.push('Trivy');
   if (results.npmAudit === null) skipped.push('npm audit');
 
-  console.log('=== Scan Pipeline Summary ===');
+  console.log('\n=== Scan Pipeline Summary ===');
   console.log(`  SAST  - Semgrep:   ${results.semgrep ?? 'skipped'} findings`);
   console.log(`  DAST  - ZAP:       ${results.zap ?? 'skipped'} findings`);
   console.log(`  DAST  - Nuclei:    ${results.nuclei ?? 'skipped'} findings`);

@@ -5,7 +5,7 @@ import type { ScanFinding } from '../../../shared/types/index.js';
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
 
-const SEMGREP_TIMEOUT_MS = 8 * 60 * 1000;
+const SEMGREP_TIMEOUT_MS = 10 * 60 * 1000;
 const SEMGREP_EXCLUDES = ['.git', '.next', 'build', 'coverage', 'dist', 'node_modules', 'out', 'vendor'];
 
 interface SarifLocation {
@@ -47,8 +47,10 @@ function mapLevel(level: SarifResult['level']): ScanFinding['severity'] {
 export async function runSemgrep(
   repoDir: string,
 ): Promise<Omit<ScanFinding, 'id' | 'created_at'>[]> {
+  const start = Date.now();
   const stdout = await runLocalSemgrep(repoDir) ?? await runDockerSemgrep(repoDir);
   if (!stdout) {
+    console.log('[SAST] Semgrep produced no output');
     return [];
   }
 
@@ -56,10 +58,13 @@ export async function runSemgrep(
   try {
     sarif = JSON.parse(stdout) as SarifOutput;
   } catch {
+    console.error('[SAST] Failed to parse Semgrep SARIF output');
     return [];
   }
 
   const results: SarifResult[] = sarif.runs?.[0]?.results ?? [];
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+  console.log(`[SAST] Semgrep found ${results.length} findings in ${elapsed}s`);
 
   return results.map((result): Omit<ScanFinding, 'id' | 'created_at'> => {
     const location = result.locations?.[0]?.physicalLocation;
@@ -82,6 +87,7 @@ export async function runSemgrep(
 
 async function runLocalSemgrep(repoDir: string): Promise<string | null> {
   try {
+    console.log('[SAST] Trying local Semgrep...');
     const result = await execFileAsync(
       'semgrep',
       buildSemgrepArgs(repoDir),
@@ -93,6 +99,7 @@ async function runLocalSemgrep(repoDir: string): Promise<string | null> {
     if (execError.stdout) {
       return execError.stdout;
     }
+    console.log('[SAST] Local Semgrep not available, falling back to Docker');
   }
 
   return null;
@@ -107,6 +114,7 @@ async function runDockerSemgrep(repoDir: string): Promise<string | null> {
   }
 
   try {
+    console.log('[SAST] Running Semgrep via Docker (this may take a few minutes)...');
     const { stdout } = await execFileAsync(
       'docker',
       ['run', '--rm', '-v', `${repoDir}:/src`, 'returntocorp/semgrep', 'semgrep', ...buildSemgrepArgs('/src')],

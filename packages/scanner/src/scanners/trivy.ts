@@ -5,7 +5,7 @@ import type { ScanFinding, SeverityLevel } from '../../../shared/types';
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
 const TRIVY_TIMEOUT_MS = 90_000;
-const TRIVY_SKIP_DIRS = ['.git', '.next', 'build', 'coverage', 'dist', 'node_modules', 'out', 'vendor'];
+const TRIVY_SKIP_DIRS = ['.git', '.next', 'build', 'coverage', 'dist', 'out', 'vendor'];
 
 type FindingWithoutMeta = Omit<ScanFinding, 'id' | 'created_at'>;
 
@@ -45,12 +45,22 @@ function mapSarifSeverity(level?: string): SeverityLevel {
 }
 
 export async function runTrivy(repoDir: string, scanId: string): Promise<FindingWithoutMeta[]> {
+  console.log(`[SCA] Running Trivy against ${repoDir}...`);
+  const start = Date.now();
   const stdout = await runLocalTrivy(repoDir) ?? await runDockerTrivy(repoDir);
   if (!stdout) {
+    console.log('[SCA] Trivy produced no output');
     return [];
   }
 
-  const report: SarifReport = JSON.parse(stdout);
+  let report: SarifReport;
+  try {
+    report = JSON.parse(stdout);
+  } catch {
+    console.error('[SCA] Failed to parse Trivy SARIF output');
+    return [];
+  }
+
   const findings: FindingWithoutMeta[] = [];
 
   for (const run of report.runs ?? []) {
@@ -74,22 +84,25 @@ export async function runTrivy(repoDir: string, scanId: string): Promise<Finding
     }
   }
 
+  console.log(`[SCA] Trivy found ${findings.length} findings in ${((Date.now() - start) / 1000).toFixed(1)}s`);
   return findings;
 }
 
 async function runLocalTrivy(repoDir: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('trivy', buildTrivyArgs(repoDir), {
+    console.log('[SCA] Trying local Trivy...');
+    const { stdout } = await execFileAsync('trivy', buildTrivyArgs(repoDir, true), {
       timeout: TRIVY_TIMEOUT_MS,
       maxBuffer: 50 * 1024 * 1024,
       shell: USE_SHELL,
     });
     return stdout;
   } catch (error) {
-    const execError = error as { stdout?: string };
+    const execError = error as { stdout?: string; stderr?: string; message?: string };
     if (execError.stdout) {
       return execError.stdout;
     }
+    console.warn('[SCA] Local Trivy failed:', execError.message || error);
   }
 
   return null;
@@ -112,7 +125,7 @@ async function runDockerTrivy(repoDir: string): Promise<string | null> {
         '-v',
         `${repoDir}:/repo:ro`,
         'ghcr.io/aquasecurity/trivy:latest',
-        ...buildTrivyArgs('/repo'),
+        ...buildTrivyArgs('/repo', false),
       ],
       {
         timeout: TRIVY_TIMEOUT_MS,
@@ -131,15 +144,21 @@ async function runDockerTrivy(repoDir: string): Promise<string | null> {
   }
 }
 
-function buildTrivyArgs(target: string): string[] {
-  return [
+function buildTrivyArgs(target: string, skipDbUpdate: boolean): string[] {
+  const args = [
     'fs',
     '--format',
     'sarif',
     '--quiet',
     '--timeout',
-    '45s',
+    '120s',
     ...TRIVY_SKIP_DIRS.flatMap((dir) => ['--skip-dirs', `${target}/${dir}`]),
-    target,
   ];
+
+  if (skipDbUpdate) {
+    args.push('--skip-db-update');
+  }
+
+  args.push(target);
+  return args;
 }

@@ -45,3 +45,43 @@
  GET /dashboard 200 in 304ms
  GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 682ms
  GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 403ms
+ GET /dashboard 200 in 424ms
+ GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 295ms
+ GET /scan/new 200 in 1539ms
+ POST /api/start-scan 200 in 1848ms
+ GET /scan/6521e7c8-b13b-462a-a4f4-125aaa1977c4 200 in 840ms
+ GET /dashboard 200 in 1449ms
+ GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 1002ms
+ GET /dashboard 200 in 414ms
+ GET /scan/6521e7c8-b13b-462a-a4f4-125aaa1977c4 200 in 306ms
+ GET /dashboard 200 in 523ms
+ GET /scan/f044ca95-2ced-43a5-8d22-adb1bb3e60f8 200 in 295ms
+ GET /dashboard 200 in 211ms
+ GET /dashboard 200 in 1052ms
+ GET /dashboard 200 in 4710ms
+ GET /dashboard 200 in 402ms
+ GET / 307 in 679ms
+ GET /dashboard 200 in 271ms
+ GET / 307 in 274ms
+ GET /dashboard 200 in 188ms
+ GET /dashboard 200 in 268ms
+ GET /dashboard 200 in 309ms
+ GET /scan/new 200 in 742ms
+ POST /api/start-scan 200 in 1137ms
+ GET /dashboard 200 in 254ms
+ GET /scan/new 200 in 557ms
+ GET /dashboard 200 in 3408ms
+ GET /scan/new 200 in 342ms
+ GET /scan/new 200 in 6933ms
+ GET /scan/new 200 in 362ms
+ GET /scan/new 200 in 388ms
+ POST /api/start-scan 200 in 1375ms
+ GET /scan/75fa2c3a-24ec-4a44-8bea-f384601a6001 200 in 392ms
+ GET /scan/75fa2c3a-24ec-4a44-8bea-f384601a6001 200 in 1833ms
+ GET /dashboard 200 in 249ms
+ GET /scan/bffc8a0a-db9e-4163-b179-975956766a6d 200 in 217ms
+ GET /dashboard 200 in 144ms
+ GET /scan/new 200 in 190ms
+ GET /scan/new 200 in 376ms
+ POST /api/start-scan 200 in 714ms
+ GET /scan/7f7fe167-3a1e-4c2a-b364-15c1f0e5bdf9 200 in 172ms
