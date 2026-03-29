@@ -1,12 +1,14 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { createClient } from '@insforge/sdk';
 import type { ScanFinding, Fix, SeverityLevel } from '../../shared/types';
 
 type FixWithoutMeta = Omit<Fix, 'id' | 'created_at'>;
 
-// Load prompt templates
-const PROMPTS_DIR = join(import.meta.dirname ?? __dirname, '..', 'templates', 'prompts');
+// Load prompt templates — resolve path correctly for ESM (any Node.js version)
+const _dirname = import.meta.dirname ?? fileURLToPath(new URL('.', import.meta.url));
+const PROMPTS_DIR = join(_dirname, '..', 'templates', 'prompts');
 
 function loadPrompt(name: string): string {
   return readFileSync(join(PROMPTS_DIR, `${name}.md`), 'utf-8');

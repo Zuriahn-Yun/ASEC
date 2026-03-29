@@ -126,15 +126,15 @@ export default async function(req: Request): Promise<Response> {
 
     const userId = userData.user.id;
 
-    // Insert scan job with status 'queued'
+    // Insert scan job with status 'queued' — array format required by InsForge SDK
     const { data: scanData, error: dbError } = await client.database
       .from('scan_jobs')
-      .insert({
+      .insert([{
         user_id: userId,
         repo_url: body.repo_url,
         repo_name: repoName,
         status: 'queued',
-      })
+      }])
       .select('id')
       .single();
 
