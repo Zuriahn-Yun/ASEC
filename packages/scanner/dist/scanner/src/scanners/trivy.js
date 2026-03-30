@@ -1,9 +1,42 @@
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { promisify } from 'util';
+import { runNpm } from '../npm.js';
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
-const TRIVY_TIMEOUT_MS = 90_000;
+// 5 minutes — DB refresh can take 2-3 min on first run; trivy internal timeout is 4m
+const TRIVY_TIMEOUT_MS = 5 * 60 * 1000;
 const TRIVY_SKIP_DIRS = ['.git', '.next', 'build', 'coverage', 'dist', 'out', 'vendor'];
+/**
+ * Ensures a package-lock.json exists so Trivy can scan npm dependencies.
+ * Trivy's SCA engine only resolves vulnerabilities when a lock file is present.
+ */
+async function ensureLockfile(repoDir) {
+    if (!existsSync(join(repoDir, 'package.json'))) {
+        return; // Not a Node.js repo
+    }
+    const lockfilePath = join(repoDir, 'package-lock.json');
+    const yarnLockPath = join(repoDir, 'yarn.lock');
+    const pnpmLockPath = join(repoDir, 'pnpm-lock.yaml');
+    if (existsSync(lockfilePath) || existsSync(yarnLockPath) || existsSync(pnpmLockPath)) {
+        return; // Already has a lockfile
+    }
+    console.log('[SCA] No lockfile found — generating package-lock.json for Trivy SCA...');
+    try {
+        await runNpm(['install', '--package-lock-only', '--ignore-scripts', '--no-audit'], {
+            cwd: repoDir,
+            timeout: 120_000,
+        });
+        if (existsSync(lockfilePath)) {
+            console.log('[SCA] Lockfile generated for Trivy');
+        }
+    }
+    catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn('[SCA] Could not generate lockfile for Trivy:', msg);
+    }
+}
 function mapSarifSeverity(level) {
     switch (level) {
         case 'error':
@@ -21,6 +54,8 @@ function mapSarifSeverity(level) {
 export async function runTrivy(repoDir, scanId) {
     console.log(`[SCA] Running Trivy against ${repoDir}...`);
     const start = Date.now();
+    // Generate lockfile if missing so Trivy can scan npm dependencies
+    await ensureLockfile(repoDir);
     const stdout = await runLocalTrivy(repoDir) ?? await runDockerTrivy(repoDir);
     if (!stdout) {
         console.log('[SCA] Trivy produced no output');
@@ -60,7 +95,9 @@ export async function runTrivy(repoDir, scanId) {
 async function runLocalTrivy(repoDir) {
     try {
         console.log('[SCA] Trying local Trivy...');
-        const { stdout } = await execFileAsync('trivy', buildTrivyArgs(repoDir, true), {
+        // Pass skipDbUpdate=false so Trivy refreshes an expired vulnerability DB.
+        // A stale DB (past NextUpdate) may silently return no results on newer Trivy builds.
+        const { stdout } = await execFileAsync('trivy', buildTrivyArgs(repoDir, false), {
             timeout: TRIVY_TIMEOUT_MS,
             maxBuffer: 50 * 1024 * 1024,
             shell: USE_SHELL,
@@ -91,7 +128,8 @@ async function runDockerTrivy(repoDir) {
             '-v',
             `${repoDir}:/repo:ro`,
             'ghcr.io/aquasecurity/trivy:latest',
-            ...buildTrivyArgs('/repo', false),
+            // skipDbUpdate=true: Docker image ships a bundled DB; skip the slow network download.
+            ...buildTrivyArgs('/repo', true),
         ], {
             timeout: TRIVY_TIMEOUT_MS,
             maxBuffer: 50 * 1024 * 1024,
@@ -113,10 +151,16 @@ function buildTrivyArgs(target, skipDbUpdate) {
         '--format',
         'sarif',
         '--quiet',
+        // Internal trivy timeout must be less than TRIVY_TIMEOUT_MS (300s)
+        // so trivy can flush SARIF before the parent process is killed.
         '--timeout',
-        '120s',
+        '4m30s',
         ...TRIVY_SKIP_DIRS.flatMap((dir) => ['--skip-dirs', `${target}/${dir}`]),
     ];
+    // Skip DB update in Docker runs — the container image ships a bundled DB,
+    // and attempting a network download inside the ephemeral container is slow
+    // and unreliable. For local runs, allow Trivy to refresh an expired DB so
+    // CVE coverage stays current.
     if (skipDbUpdate) {
         args.push('--skip-db-update');
     }

@@ -11,12 +11,47 @@ function mapNpmSeverity(severity) {
         default: return 'medium';
     }
 }
+/**
+ * Ensures a package-lock.json exists so npm audit can run.
+ * Many repos only commit package.json, not the lockfile.
+ * `npm i --package-lock-only` resolves deps without installing node_modules.
+ */
+async function ensureLockfile(repoDir) {
+    const lockfilePath = join(repoDir, 'package-lock.json');
+    const yarnLockPath = join(repoDir, 'yarn.lock');
+    const pnpmLockPath = join(repoDir, 'pnpm-lock.yaml');
+    if (existsSync(lockfilePath) || existsSync(yarnLockPath) || existsSync(pnpmLockPath)) {
+        return true; // Already has a lockfile
+    }
+    console.log('[npm-audit] No lockfile found — generating package-lock.json (npm i --package-lock-only)...');
+    try {
+        await runNpm(['install', '--package-lock-only', '--ignore-scripts', '--no-audit'], {
+            cwd: repoDir,
+            timeout: 120_000,
+        });
+        if (existsSync(lockfilePath)) {
+            console.log('[npm-audit] Lockfile generated successfully');
+            return true;
+        }
+    }
+    catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn('[npm-audit] Failed to generate lockfile:', msg);
+    }
+    return false;
+}
 export async function runNpmAudit(repoDir, scanId) {
     if (!existsSync(join(repoDir, 'package.json'))) {
         console.warn('[npm-audit] No package.json found, skipping');
         return [];
     }
     try {
+        // Ensure there's a lockfile to audit against
+        const hasLockfile = await ensureLockfile(repoDir);
+        if (!hasLockfile) {
+            console.warn('[npm-audit] Could not obtain a lockfile — skipping npm audit');
+            return [];
+        }
         let stdout;
         try {
             const result = await runNpm(['audit', '--json'], {

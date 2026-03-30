@@ -179,14 +179,27 @@ export async function computeSummary(scanId) {
     }
     console.log('[REPORTER] Scan summary saved:', summary);
 }
+// Maximum time we'll spend on a realtime operation before giving up.
+// The SDK's subscribe() wraps a socket.io ack with no built-in timeout; without
+// this guard a missed server ack would stall the pipeline indefinitely.
+const REALTIME_OP_TIMEOUT_MS = 8_000;
 async function publishRealtime(scanId, event, payload) {
     if (realtimeDisabled) {
         return;
     }
+    let timer;
+    const timeoutGuard = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Realtime operation timed out after ${REALTIME_OP_TIMEOUT_MS}ms`)), REALTIME_OP_TIMEOUT_MS);
+    });
     try {
-        await insforge.realtime.connect();
-        await insforge.realtime.subscribe(`scan:${scanId}`);
-        await insforge.realtime.publish(`scan:${scanId}`, event, payload);
+        await Promise.race([
+            (async () => {
+                await insforge.realtime.connect();
+                await insforge.realtime.subscribe(`scan:${scanId}`);
+                await insforge.realtime.publish(`scan:${scanId}`, event, payload);
+            })(),
+            timeoutGuard,
+        ]);
     }
     catch (realtimeError) {
         if (realtimeError instanceof Error && realtimeError.message.includes('Invalid token')) {
@@ -195,5 +208,10 @@ async function publishRealtime(scanId, event, payload) {
             return;
         }
         console.warn('[REPORTER] Realtime broadcast failed (non-critical):', realtimeError);
+    }
+    finally {
+        if (timer !== undefined) {
+            clearTimeout(timer);
+        }
     }
 }

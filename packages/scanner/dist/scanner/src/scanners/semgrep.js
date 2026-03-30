@@ -89,12 +89,25 @@ async function runDockerSemgrep(repoDir) {
     }
 }
 function buildSemgrepArgs(target) {
+    // Use p/javascript (broad, high-signal, no auth required in OSS) +
+    // p/secrets to catch credential leaks. Keeping to 2 rulesets avoids
+    // multi-ruleset fan-out that turns a 10-minute scan into a 60-minute one.
+    const configs = [
+        'p/javascript',
+        'p/secrets',
+    ];
     return [
         'scan',
-        '--config',
-        'auto',
+        ...configs.flatMap((cfg) => ['--config', cfg]),
         '--sarif',
         '--quiet',
+        // Force OSS-only mode — prevents Pro rule authentication prompts that
+        // can stall the scan indefinitely in CI/unattended environments.
+        '--oss-only',
+        // Skip large generated/vendored files to keep scan time under 5 min
+        '--max-target-bytes', '500000',
+        // Use all available CPUs for parallel rule evaluation
+        '--jobs', '4',
         ...SEMGREP_EXCLUDES.flatMap((dir) => ['--exclude', dir]),
         target,
     ];
