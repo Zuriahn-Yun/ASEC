@@ -66,13 +66,18 @@ interface ZapInstance {
 interface ZapReport {
   '@version': string;
   '@generated': string;
-  site: ZapSite[];
+  // ZAP JSON report emits `site` as an array when multiple sites are scanned,
+  // but as a single object when only one site is scanned (older ZAP versions).
+  site: ZapSite[] | ZapSite;
 }
 
 export async function runZap(
   targetUrl: string,
 ): Promise<Omit<ScanFinding, 'id' | 'created_at'>[]> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zap-'));
+  // ZAP container runs as UID 1000 (non-root). mkdtemp creates dirs as 0700 (owner-only).
+  // Chmod to 0777 so the container user can write its YAML plan and JSON report.
+  await fs.chmod(tempDir, 0o777);
   const reportPath = path.join(tempDir, 'zap-report.json');
 
   try {
@@ -82,6 +87,13 @@ export async function runZap(
       console.warn('[DAST] Docker is not available, skipping ZAP scan.');
       return [];
     }
+
+    // Pre-pull the image so scan time isn't eaten by the Docker registry download.
+    console.log('[DAST] Pre-pulling ZAP Docker image...');
+    await execFileAsync('docker', ['pull', '--quiet', 'ghcr.io/zaproxy/zaproxy:stable'], {
+      timeout: 5 * 60 * 1000,
+      maxBuffer: 10 * 1024 * 1024,
+    }).catch((err) => console.warn('[DAST] ZAP image pull warning:', (err as Error).message));
 
     const dockerTargetUrl = getDockerReachableUrl(targetUrl);
     console.log(`[DAST] Starting ZAP baseline scan against ${dockerTargetUrl}...`);
@@ -129,7 +141,9 @@ export async function runZap(
       '0': 'low',
     };
 
-    for (const site of report.site || []) {
+    // Normalize site field: ZAP emits a single object when one site, array when many.
+    const sites = Array.isArray(report.site) ? report.site : (report.site ? [report.site] : []);
+    for (const site of sites) {
       for (const alert of site.alerts || []) {
         const severity = riskCodeToSeverity[alert.riskcode] || 'info';
 

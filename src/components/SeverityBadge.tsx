@@ -9,7 +9,7 @@ const COLORS: Record<SeverityLevel, { bg: string; text: string; border: string }
 };
 
 export function SeverityBadge({ severity }: { severity: SeverityLevel }) {
-  const c = COLORS[severity];
+  const c = COLORS[severity] ?? COLORS.info;
   return (
     <span
       className={`inline-block px-2.5 py-0.5 rounded-full border text-xs font-semibold uppercase tracking-wide ${c.bg} ${c.text} ${c.border}`}

@@ -44,6 +44,7 @@ interface ScanWithSummary extends ScanJobRow {
   high_count: number;
   medium_count: number;
   low_count: number;
+  fixes_generated: number;
 }
 
 export default function Dashboard() {
@@ -65,8 +66,23 @@ export default function Dashboard() {
     }
   }, [isLoaded, scanOwnerId]);
 
-  const fetchScans = async () => {
-    setLoading(true);
+  // Poll every 5 s while any scan is still running so the table auto-updates
+  useEffect(() => {
+    if (!isLoaded) return;
+    const TERMINAL = new Set(['complete', 'failed']);
+    const hasActiveScans = scans.some((s) => !TERMINAL.has(s.status));
+    if (!hasActiveScans) return;
+
+    const id = window.setInterval(() => {
+      fetchScans(false); // poll silently — no spinner flash
+    }, 5000);
+
+    return () => window.clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, scans]);
+
+  const fetchScans = async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
 
     const { data: jobs, error: jobsError } = await insforge.database
       .from('scan_jobs')
@@ -101,6 +117,7 @@ export default function Dashboard() {
         high_count: s?.high_count ?? 0,
         medium_count: s?.medium_count ?? 0,
         low_count: s?.low_count ?? 0,
+        fixes_generated: s?.fixes_generated ?? 0,
       };
     });
 
@@ -113,12 +130,13 @@ export default function Dashboard() {
     const totalScans = scanData.length;
     const totalFindings = scanData.reduce((sum, scan) => sum + scan.total_findings, 0);
     const criticalFindings = scanData.reduce((sum, scan) => sum + scan.critical_count, 0);
-    
+    const fixedIssues = scanData.reduce((sum, scan) => sum + scan.fixes_generated, 0);
+
     setStats({
       totalScans,
       totalFindings,
       criticalFindings,
-      fixedIssues: 0,
+      fixedIssues,
     });
   };
 

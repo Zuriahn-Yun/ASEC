@@ -27,12 +27,38 @@ interface ScanFinding {
 
 const execFileAsync = promisify(execFile);
 const USE_SHELL = process.platform === 'win32';
-const NUCLEI_TIMEOUT_MS = 5 * 60 * 1000;
+// 4 minutes — focused template set (technologies + misconfiguration + exposures) completes well within this.
+const NUCLEI_TIMEOUT_MS = 4 * 60 * 1000;
 
+// Fast, high-signal template paths — avoids the thousands of CVE templates that stall demo scans.
+// http/technologies  → detect what's running (bounded, fast)
+// http/misconfiguration → common misconfig patterns
+// http/exposures     → exposed files, panels, credentials
+const NUCLEI_TEMPLATE_DIRS = [
+  'http/technologies/',
+  'http/misconfiguration/',
+  'http/exposures/',
+];
+
+/** Returns true when the target responds to a basic HTTP probe within 5 s. */
+async function isTargetReachable(targetUrl: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(targetUrl, { signal: controller.signal, method: 'HEAD' }).catch(
+      () => fetch(targetUrl, { signal: controller.signal }),
+    );
+    clearTimeout(timer);
+    return res.status < 600;
+  } catch {
+    return false;
+  }
+}
+
+// Nuclei v3.x outputs hyphenated JSON keys (template-id, matched-at, etc.)
 interface NucleiOutput {
-  template: string;
-  template_id: string;
-  template_path: string;
+  'template-id': string;
+  'template-path': string;
   info: {
     name: string;
     author: string | string[];
@@ -40,23 +66,34 @@ interface NucleiOutput {
     description?: string;
     reference?: string | string[];
     classification?: {
-      cwe_id?: string | string[];
-      cvss_score?: number;
+      'cwe-id'?: string | string[];
+      'cvss-score'?: number;
     };
   };
   type: string;
   host: string;
-  matched_at: string;
+  'matched-at': string;
   timestamp: string;
-  curl_command?: string;
-  matcher_status: boolean;
-  extracted_results?: string[];
+  'curl-command'?: string;
+  'matcher-status': boolean;
+  'extracted-results'?: string[];
 }
 
 export async function runNuclei(
   targetUrl: string,
 ): Promise<Omit<ScanFinding, 'id' | 'created_at'>[]> {
+  // Pre-flight: skip scan if the target isn't reachable — nuclei will stall
+  // waiting on connection timeouts for every template (can be thousands).
+  console.log(`[DAST] Checking Nuclei target reachability: ${targetUrl}`);
+  const reachable = await isTargetReachable(targetUrl);
+  if (!reachable) {
+    console.warn(`[DAST] Nuclei target ${targetUrl} is unreachable — skipping scan.`);
+    return [];
+  }
+
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nuclei-'));
+  // Ensure the Docker container user can write the output file.
+  await fs.chmod(tempDir, 0o777);
   const outputPath = path.join(tempDir, 'nuclei.jsonl');
 
   try {
@@ -74,7 +111,7 @@ export async function runNuclei(
     return findings;
   } catch (error) {
     if (error instanceof Error && error.message.includes('timeout')) {
-      console.error('[DAST] Nuclei scan timed out after 5 minutes');
+      console.error(`[DAST] Nuclei scan timed out after ${NUCLEI_TIMEOUT_MS / 60000} minutes`);
       return [];
     }
 
@@ -85,7 +122,7 @@ export async function runNuclei(
   }
 }
 
-async function runLocalNuclei(targetUrl: string, outputPath: string): Promise<string | null> {
+async function runLocalNuclei(targetUrl: string, _outputPath: string): Promise<string | null> {
   try {
     await execFileAsync('nuclei', ['-version'], { timeout: 5000, shell: USE_SHELL });
   } catch {
@@ -93,25 +130,43 @@ async function runLocalNuclei(targetUrl: string, outputPath: string): Promise<st
     return null;
   }
 
+  // Use -j (stdout JSON lines) instead of -jle (output file).
+  // -jle only writes on clean process exit — if execFileAsync rejects (non-zero exit code),
+  // the file is never created. -j writes to stdout which execFileAsync captures regardless
+  // of exit code (available via error.stdout in the catch branch).
+  console.log(`[DAST] Running local Nuclei against ${targetUrl}...`);
   try {
-    console.log(`[DAST] Running local Nuclei against ${targetUrl}...`);
-    await execFileAsync('nuclei', [
+    const { stdout } = await execFileAsync('nuclei', [
       '-u', targetUrl,
-      '-jsonl',
+      '-j',      // write JSONL to stdout
       '-silent',
-      '-severity', 'critical,high,medium,low',
-      '-as',
-      '-o', outputPath,
+      // Skip automatic update check — without this, nuclei spends 2-6 minutes
+      // pulling template updates before it starts scanning. Critical for demos.
+      '-duc',
+      // Include info+low: HTTP missing-security-headers findings are severity=info.
+      '-severity', 'critical,high,medium,low,info',
+      // 'headers' = 6 focused templates (fast, confirmed findings on web apps).
+      // 'cors' = 2 templates. Avoid 'xss' (1175) and 'misconfig' (906) — too slow.
+      '-tags', 'headers,cors',
+      '-timeout', '10', // per-request timeout in seconds
+      '-rl', '100',     // rate limit requests per second
+      '-c', '25',       // concurrent requests
     ], {
       timeout: NUCLEI_TIMEOUT_MS,
       maxBuffer: 50 * 1024 * 1024,
       shell: USE_SHELL,
     });
-  } catch {
+    return stdout || null;
+  } catch (error) {
+    const execError = error as { stdout?: string };
+    if (execError.stdout) {
+      // nuclei exits non-zero when findings exist — stdout still contains the JSONL.
+      return execError.stdout;
+    }
     console.log('[DAST] Nuclei scan completed (may have findings or warnings)');
   }
 
-  return fs.readFile(outputPath, 'utf-8').catch(() => '');
+  return null;
 }
 
 async function runDockerNuclei(targetUrl: string, tempDir: string, outputPath: string): Promise<string | null> {
@@ -121,6 +176,14 @@ async function runDockerNuclei(targetUrl: string, tempDir: string, outputPath: s
     console.warn('[DAST] Docker is not available, skipping Nuclei scan.');
     return null;
   }
+
+  // Pre-pull the image so scan time isn't eaten by the Docker registry download.
+  // Use --quiet to avoid filling logs; ignore failures (image may already be cached).
+  console.log('[DAST] Pre-pulling Nuclei Docker image...');
+  await execFileAsync('docker', ['pull', '--quiet', 'projectdiscovery/nuclei:latest'], {
+    timeout: 5 * 60 * 1000,
+    maxBuffer: 10 * 1024 * 1024,
+  }).catch((err) => console.warn('[DAST] Nuclei image pull warning:', (err as Error).message));
 
   const dockerTargetUrl = getDockerReachableUrl(targetUrl);
   console.log(`[DAST] Running Dockerized Nuclei against ${dockerTargetUrl}...`);
@@ -135,12 +198,16 @@ async function runDockerNuclei(targetUrl: string, tempDir: string, outputPath: s
       'projectdiscovery/nuclei:latest',
       '-u',
       dockerTargetUrl,
-      '-jsonl',
+      '-jle', '/work/nuclei.jsonl',
+      '-duc',
       '-silent',
-      '-severity',
-      'critical,high,medium,low',
-      '-o',
-      '/work/nuclei.jsonl',
+      '-severity', 'critical,high,medium,low,info',
+      // 'headers' = 6 templates (fast, high-yield); 'cors' = 2; 'generic' is small.
+      // Avoid 'xss' (1175 templates) — blows the timeout window.
+      '-tags', 'headers,cors,generic',
+      '-timeout', '15',
+      '-rl', '100',
+      '-c', '25',
     ], {
       timeout: NUCLEI_TIMEOUT_MS,
       maxBuffer: 50 * 1024 * 1024,
@@ -168,17 +235,17 @@ function parseNucleiOutput(output: string): Omit<ScanFinding, 'id' | 'created_at
       };
 
       let cweId: string | undefined;
-      if (result.info.classification?.cwe_id) {
-        const cwe = result.info.classification.cwe_id;
+      if (result.info.classification?.['cwe-id']) {
+        const cwe = result.info.classification['cwe-id'];
         cweId = Array.isArray(cwe) ? cwe[0] : cwe;
       }
 
       let description = result.info.description || '';
-      if (result.extracted_results?.length) {
-        description += `\n\nExtracted: ${result.extracted_results.join(', ')}`;
+      if (result['extracted-results']?.length) {
+        description += `\n\nExtracted: ${result['extracted-results'].join(', ')}`;
       }
-      if (result.curl_command) {
-        description += `\n\nCurl: ${result.curl_command}`;
+      if (result['curl-command']) {
+        description += `\n\nCurl: ${result['curl-command']}`;
       }
 
       findings.push({
@@ -188,9 +255,9 @@ function parseNucleiOutput(output: string): Omit<ScanFinding, 'id' | 'created_at
         severity: severityMap[result.info.severity.toLowerCase()] || 'info',
         title: result.info.name,
         description: description.trim(),
-        file_path: result.matched_at,
+        file_path: result['matched-at'],
         cwe_id: cweId,
-        rule_id: result.template_id,
+        rule_id: result['template-id'],
       });
     } catch (parseError) {
       console.warn('[DAST] Failed to parse a Nuclei output line:', parseError);

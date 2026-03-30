@@ -75,31 +75,30 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch findings' }, { status: 500 });
     }
 
-    // Check for available fixes
-    const findingsWithFixStatus = await Promise.all(
-      (findings || []).map(async (finding) => {
-        const { data: fixes } = await insforge.database
+    // Batch-fetch all fix existence in a single query (avoids N+1)
+    const findingIds = (findings || []).map((f) => f.id);
+    const { data: fixRows } = findingIds.length > 0
+      ? await insforge.database
           .from('fixes')
-          .select('id')
-          .eq('finding_id', finding.id)
-          .limit(1);
+          .select('finding_id')
+          .in('finding_id', findingIds)
+      : { data: [] };
+    const fixSet = new Set((fixRows || []).map((r: { finding_id: string }) => r.finding_id));
 
-        return {
-          id: finding.id,
-          severity: finding.severity,
-          title: finding.title,
-          description: finding.description,
-          file_path: finding.file_path,
-          line_start: finding.line_start,
-          line_end: finding.line_end,
-          scanner: finding.scanner,
-          scan_type: finding.scan_type,
-          cwe_id: finding.cwe_id,
-          rule_id: finding.rule_id,
-          fix_available: fixes && fixes.length > 0,
-        };
-      })
-    );
+    const findingsWithFixStatus = (findings || []).map((finding) => ({
+      id: finding.id,
+      severity: finding.severity,
+      title: finding.title,
+      description: finding.description,
+      file_path: finding.file_path,
+      line_start: finding.line_start,
+      line_end: finding.line_end,
+      scanner: finding.scanner,
+      scan_type: finding.scan_type,
+      cwe_id: finding.cwe_id,
+      rule_id: finding.rule_id,
+      fix_available: fixSet.has(finding.id),
+    }));
 
     return NextResponse.json({
       findings: findingsWithFixStatus,

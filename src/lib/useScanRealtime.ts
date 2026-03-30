@@ -25,24 +25,36 @@ export function useScanRealtime(
     const channel = `scan:${scanId}`;
     let active = true;
 
-    const handleStatusChanged = (message: { payload?: { status?: string; error?: string } }) => {
+    const handleStatusChanged = (message: { payload?: { scan_id?: string; status?: string; error?: string } }) => {
       if (!active || !message.payload?.status) {
+        return;
+      }
+      // Guard: ignore events belonging to a different scan
+      if (message.payload.scan_id && message.payload.scan_id !== scanId) {
         return;
       }
 
       onStatusChange(message.payload.status, message.payload.error);
     };
 
-    const handleFindingBatch = (message: { payload?: { count?: number } }) => {
+    const handleFindingBatch = (message: { payload?: { scan_id?: string; count?: number } }) => {
       if (!active || typeof message.payload?.count !== 'number') {
+        return;
+      }
+      // Guard: ignore events belonging to a different scan
+      if (message.payload.scan_id && message.payload.scan_id !== scanId) {
         return;
       }
 
       onFindingBatch(message.payload.count);
     };
 
-    const handleFixGenerated = (message: { payload?: { finding_id?: string } }) => {
+    const handleFixGenerated = (message: { payload?: { scan_id?: string; finding_id?: string } }) => {
       if (!active || !message.payload?.finding_id) {
+        return;
+      }
+      // Guard: ignore events belonging to a different scan
+      if (message.payload.scan_id && message.payload.scan_id !== scanId) {
         return;
       }
 
@@ -60,8 +72,9 @@ export function useScanRealtime(
         insforge.realtime.on('status_changed', handleStatusChanged);
         insforge.realtime.on('finding_batch', handleFindingBatch);
         insforge.realtime.on('fix_generated', handleFixGenerated);
-      } catch {
+      } catch (err) {
         // Realtime is optional for the demo; the page polls while a scan runs.
+        console.warn('[useScanRealtime] Realtime connection failed (polling will handle updates):', err);
       }
     };
 
