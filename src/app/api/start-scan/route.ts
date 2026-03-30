@@ -14,13 +14,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'repo_url is required' }, { status: 400 });
     }
 
+    // Validate that repo_url is a well-formed URL (accepts GitHub repos AND live targets)
+    let parsedUrl: URL;
     try {
-      const parsed = new URL(repo_url);
-      if (parsed.hostname !== 'github.com' || parsed.pathname.length <= 1) {
-        throw new Error('Invalid GitHub URL');
+      parsedUrl = new URL(repo_url);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('URL must use http or https');
       }
     } catch {
-      return NextResponse.json({ error: 'Invalid GitHub URL' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid URL — must be a valid http/https URL' }, { status: 400 });
     }
 
     const client = createClient({
@@ -28,7 +30,11 @@ export async function POST(req: NextRequest) {
       anonKey: INSFORGE_ANON_KEY,
     });
 
-    const repoName = new URL(repo_url).pathname.split('/').filter(Boolean)[1]?.replace('.git', '') || 'unknown';
+    // For GitHub repos, use the repo name. For live targets, use the hostname.
+    const isGitHub = parsedUrl.hostname === 'github.com';
+    const repoName = isGitHub
+      ? parsedUrl.pathname.split('/').filter(Boolean)[1]?.replace('.git', '') || 'unknown'
+      : parsedUrl.hostname;
 
     const { data: scanData, error: dbError } = await client.database
       .from('scan_jobs')

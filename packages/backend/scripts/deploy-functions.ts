@@ -53,8 +53,8 @@ async function deployFunction(fn: FunctionDeployment): Promise<void> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${INSFORGE_API_KEY}`,
-      'apikey': INSFORGE_API_KEY,
+      'Authorization': `Bearer ${INSFORGE_API_KEY!}`,
+      'apikey': INSFORGE_API_KEY!,
     },
     body: JSON.stringify({
       name: fn.name,
@@ -76,8 +76,8 @@ async function deployFunction(fn: FunctionDeployment): Promise<void> {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${INSFORGE_API_KEY}`,
-          'apikey': INSFORGE_API_KEY,
+          'Authorization': `Bearer ${INSFORGE_API_KEY!}`,
+          'apikey': INSFORGE_API_KEY!,
         },
         body: JSON.stringify({
           name: fn.name,

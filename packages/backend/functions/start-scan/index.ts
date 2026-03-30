@@ -18,30 +18,34 @@ interface StartScanResponse {
 }
 
 /**
- * Validates if the URL is a valid GitHub URL
+ * Validates that the URL is a well-formed http/https URL.
+ * Accepts GitHub repos AND live web targets for DAST.
  */
-function isValidGitHubUrl(url: string): boolean {
+function isValidScanUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.hostname === 'github.com' && parsed.pathname.length > 1;
+    return ['http:', 'https:'].includes(parsed.protocol);
   } catch {
     return false;
   }
 }
 
 /**
- * Extracts repo name from GitHub URL
+ * Derives a human-readable name from the scan URL.
+ * GitHub repos → repo name; live targets → hostname.
  */
-function extractRepoName(url: string): string {
+function extractTargetName(url: string): string {
   try {
     const parsed = new URL(url);
-    const parts = parsed.pathname.split('/').filter(Boolean);
-    if (parts.length >= 2) {
-      return parts[1].replace('.git', '');
+    if (parsed.hostname === 'github.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length >= 2) {
+        return parts[1].replace('.git', '');
+      }
     }
-    return 'unknown-repo';
+    return parsed.hostname || 'unknown-target';
   } catch {
-    return 'unknown-repo';
+    return 'unknown-target';
   }
 }
 
@@ -88,9 +92,9 @@ export default async function(req: Request): Promise<Response> {
       );
     }
 
-    if (!isValidGitHubUrl(body.repo_url)) {
+    if (!isValidScanUrl(body.repo_url)) {
       return new Response(
-        JSON.stringify({ error: 'Invalid GitHub URL format' }),
+        JSON.stringify({ error: 'Invalid URL — must be a valid http/https URL' }),
         {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -99,7 +103,7 @@ export default async function(req: Request): Promise<Response> {
     }
 
     // Extract repo name from URL
-    const repoName = extractRepoName(body.repo_url);
+    const repoName = extractTargetName(body.repo_url);
 
     // Extract auth token from request headers
     const authHeader = req.headers.get('Authorization');
